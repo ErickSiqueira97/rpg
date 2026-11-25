@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RPG Multiverso</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <h1>RPG Multiverso</h1>
+  <p id="status" role="status"></p>
+
+  <section id="auth">
+    <h2>Entrar</h2>
+    <form id="auth-form">
+      <label for="usuario">Usuário</label>
+      <input id="usuario" name="usuario" required minlength="3" maxlength="24" autocomplete="username" autocapitalize="none" spellcheck="false">
+      <label for="senha">Senha</label>
+      <input id="senha" name="senha" type="password" required minlength="6" maxlength="72" autocomplete="current-password">
+      <button type="submit">Entrar</button>
+      <button type="button" id="cadastrar">Cadastrar</button>
+    </form>
+  </section>
+
+  <section id="jogo" hidden>
+    <p id="meta"></p>
+    <button type="button" id="sair">Sair</button>
+
+    <h2>Nova ficha</h2>
+    <form id="ficha">
+      <label for="nome">Nome</label>
+      <input id="nome" name="nome" required maxlength="40" autocomplete="off">
+      <label for="origem">Origem</label>
+      <input id="origem" name="origem" required maxlength="80" value="Porto de Véspera">
+      <label for="arquetipo">Arquétipo</label>
+      <select id="arquetipo" name="arquetipo">
+        <option>Errante</option>
+        <option>Espadachim</option>
+        <option>Ocultista</option>
+        <option>Sentinela</option>
+        <option>Artífice</option>
+      </select>
+      <label for="conceito">Conceito</label>
+      <textarea id="conceito" name="conceito" maxlength="400"></textarea>
+      <fieldset>
+        <legend>Atributos (base 4, distribua 12 pontos, máximo 10)</legend>
+        <p id="pontos">Pontos usados: 12 / 12</p>
+        <label for="forca">Força <input id="forca" data-attr type="number" min="4" max="10" value="6"></label>
+        <label for="agilidade">Agilidade <input id="agilidade" data-attr type="number" min="4" max="10" value="6"></label>
+        <label for="vigor">Vigor <input id="vigor" data-attr type="number" min="4" max="10" value="6"></label>
+        <label for="percepcao">Percepção <input id="percepcao" data-attr type="number" min="4" max="10" value="6"></label>
+        <label for="intelecto">Intelecto <input id="intelecto" data-attr type="number" min="4" max="10" value="6"></label>
+        <label for="essencia">Essência <input id="essencia" data-attr type="number" min="4" max="10" value="6"></label>
+      </fieldset>
+      <button type="submit">Criar ficha</button>
+    </form>
+
+    <h2>Sagas</h2>
+    <form id="nova-saga">
+      <label for="personagem">Personagem</label>
+      <select id="personagem" name="personagemId" required></select>
+      <button type="submit">Nova saga</button>
+    </form>
+    <ul id="sagas"></ul>
+
+    <h2 id="saga-titulo">Crônica</h2>
+    <div id="log"></div>
+    <p id="memoria"></p>
+    <p id="mundo"></p>
+    <form id="acao">
+      <label for="texto">Sua ação</label>
+      <textarea id="texto" name="texto" maxlength="1500"></textarea>
+      <button type="submit">Enviar</button>
+      <button type="button" id="comecar">Começar a saga</button>
+    </form>
+  </section>
+  <script src="/static/app.js"></script>
+</body>
+</html>
