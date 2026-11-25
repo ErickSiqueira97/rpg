@@ -175,7 +175,32 @@ def test_quero_nao_devolve_apelido_e_forma_respeita_o_teto():
     assert sombra["subclasse"] == "Pastor de Sombras"
     assert sombra["traco"] == "sistema"
     assert "leveling" not in __import__("json").dumps(sombra).lower()
-    assert suggest_build("quero ser um padeiro de tortas")["classe"] != "espadachim"
+    assert suggest_build("quero ser um padeiro de tortas") is None
+    kirito = suggest_build("kirito")
+    assert kirito["classe"] == "espadachim"
+    assert kirito["subclasse"] == "Três Lâminas"
+    assert kirito["raca"] == "humano"
+    assert kirito["via"] == ""
+    assert kirito["raca"] != "receptaculo"
+    assert "kirito" not in __import__("json").dumps(kirito).lower()
+    assert suggest_build("quero ser o kirito")["build"] == "Lâmina Dupla"
+
+
+def test_xyzabc_nao_vira_build_conhecido():
+    import asyncio
+    import json
+
+    from app.catalog import resolve_quero
+    from app.llm import FakeGateway
+
+    gateway = FakeGateway()
+    build = asyncio.run(resolve_quero("xyzabc", gateway))
+    assert build["fonte"] == "fallback"
+    assert build["build"] == ""
+    assert build["via"] == ""
+    assert build["classe"] != "receptaculo"
+    assert "Build conhecido" not in json.dumps(build)
+    assert len(gateway.calls) == 2
     hero = _hero()
     hero.sheet["racaId"] = "licantropo"
     hero.sheet["estagio"] = 2

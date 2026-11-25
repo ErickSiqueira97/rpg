@@ -143,7 +143,9 @@ document.querySelector("#quero").addEventListener("click", async () => {
     }
     document.querySelector("#via").value = data.via || "";
     document.querySelector("#traco").value = data.traco || "";
-    const conhecido = data.build ? " Build conhecido: " + data.build + "." : " Nenhum build conhecido.";
+    const conhecido = data.fonte === "tabela" && data.build
+      ? " Build conhecido: " + data.build + "."
+      : " A tabela não reconheceu o pedido.";
     document.querySelector("#quero-resultado").textContent = "Sugestão: " + data.nome + "." + conhecido + " O nome pedido não entra na ficha.";
   } catch (error) {
     say(error.message);

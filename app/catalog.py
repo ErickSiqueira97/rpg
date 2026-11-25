@@ -110,6 +110,7 @@ _BUILDS = [
     {"id": "guerreiro_despertar", "nome": "Guerreiro do Despertar", "raca": "estelar", "variante": "", "classe": "punho_de_aura", "subclasse": "Ascensão", "origemId": "discipulo_de_eremita", "via": "aura", "traco": "forjado_na_luta", "conceito": "Guerreiro vindo de outro mundo. Treina com um eremita e desperta o corpo em estágios, cada limite rompido mais alto que o anterior.", "aliases": ["goku", "kakaroto", "kakarotto", "saiyajin", "sayajin", "saiyan", "ki fighter", "lutador de ki", "artista marcial de ki", "dragon ball", "artista marcial", "guerreiro do despertar"]},
     {"id": "punho_elastico", "nome": "Punho Elástico", "raca": "humano", "variante": "", "classe": "punho_de_aura", "subclasse": "Palma Aberta", "origemId": "marujo_errante", "via": "aura", "traco": "dom_singular", "conceito": "Marujo cujo corpo estica o golpe até três metros. O mesmo dom o impede de nadar.", "aliases": ["luffy", "punho elastico", "corpo de borracha", "corpo elastico"]},
     {"id": "lamina_tripla", "nome": "Lâmina Tripla", "raca": "humano", "variante": "", "classe": "espadachim", "subclasse": "Três Lâminas", "origemId": "mercenario", "via": "", "traco": "forjado_na_luta", "conceito": "Mercenário que luta com três lâminas ao mesmo tempo e transforma o estilo num ritmo de golpes.", "aliases": ["zoro", "roronoa", "tres laminas", "tres espadas", "swordsman", "espadachim de tres laminas"]},
+    {"id": "lamina_dupla", "nome": "Lâmina Dupla", "raca": "humano", "variante": "", "classe": "espadachim", "subclasse": "Três Lâminas", "origemId": "mercenario", "via": "", "traco": "forjado_na_luta", "conceito": "Espadachim de duas mãos. Uma lâmina em cada punho, no estilo leve de quem luta sozinho no claro.", "aliases": ["kirito", "kirigaya", "duas espadas", "duas laminas", "dual wield", "espadachim de duas espadas", "espadachim"]},
     {"id": "portador_colosso", "nome": "Portador do Colosso", "raca": "sangue_de_colosso", "variante": "", "classe": "cacador", "subclasse": "Batedor da Muralha", "origemId": "cadete_da_muralha", "via": "sangue", "traco": "forjado_na_luta", "conceito": "Cadete da muralha que herda um corpo capaz de crescer até a forma colossal.", "aliases": ["eren", "yeager", "jaeger", "portador do colosso", "titã", "tita", "attack on titan"]},
     {"id": "antidom", "nome": "Antidom", "raca": "humano", "variante": "", "classe": "espadachim", "subclasse": "Lâmina Campeã", "origemId": "orfao_de_guerra", "via": "", "traco": "nulo", "conceito": "Órfão cuja lâmina anula técnicas. Não usa Vias: o aço é o bastante.", "aliases": ["asta", "antimagia", "antidom", "anula magia", "nulo"]},
     {"id": "grimorista_vento", "nome": "Grimorista do Vento", "raca": "longevo", "variante": "", "classe": "grimorista", "subclasse": "Afinidade Elemental", "origemId": "orfao_de_guerra", "via": "grimorio", "traco": "olhos_raros", "conceito": "Leitor de um grimório de vento. A página escolhe o elemento e o livro guarda o que a memória não segura.", "aliases": ["yuno", "grimorista de vento", "mago de vento", "sorcerer", "feiticeiro", "mago"]},
@@ -211,10 +212,19 @@ def techniques_for(via_id: str) -> list[dict]:
     return items
 
 
-def _contains_alias(folded: str, alias: str) -> bool:
-    if " " in alias:
-        return alias in folded
-    return re.search(rf"\b{re.escape(alias)}\b", folded) is not None
+def _normalize_request(text: str) -> str:
+    folded = _fold(text)
+    folded = re.sub(r"^(quero ser|quero jogar)\s+(o|a|os|as|um|uma)\s+", "", folded)
+    folded = re.sub(r"^(quero ser|quero jogar)\s+", "", folded)
+    return " ".join(folded.split())
+
+
+def _contains_alias(text: str, alias: str) -> bool:
+    """Casa só a frase inteira do apelido, em palavras completas. Sem trecho dentro de outro nome."""
+    alias = _fold(alias)
+    if len(alias) < 3:
+        return False
+    return re.search(rf"(?<!\w){re.escape(alias)}(?!\w)", text) is not None
 
 
 def _public_from(build: dict, *, fonte: str, motivo: str) -> dict:
@@ -236,23 +246,30 @@ def _public_from(build: dict, *, fonte: str, motivo: str) -> dict:
 
 
 def match_known_build(text: str) -> dict | None:
-    folded = _fold(text)
-    hits = []
+    remainder = _normalize_request(text)
+    if not remainder:
+        return None
+    hits: list[tuple[int, str, dict]] = []
     for build in _BUILDS:
         for alias in build["aliases"]:
-            if _contains_alias(folded, alias):
-                hits.append((len(alias), build))
+            folded_alias = _fold(alias)
+            if _contains_alias(remainder, folded_alias):
+                hits.append((len(folded_alias), build["id"], build))
     if not hits:
         return None
-    hits.sort(key=lambda item: item[0], reverse=True)
-    return _public_from(hits[0][1], fonte="tabela", motivo="apelido reconhecido na tabela de builds")
+    best = max(item[0] for item in hits)
+    winners = {item[1]: item[2] for item in hits if item[0] == best}
+    if len(winners) != 1:
+        log.warning("quero fonte=tabela ambigua builds=%s", ",".join(sorted(winners)))
+        return None
+    build = next(iter(winners.values()))
+    return _public_from(build, fonte="tabela", motivo="apelido inteiro reconhecido na tabela")
 
 
 def suggest_build(text: str) -> dict | None:
-    folded = _fold(text)
-    if "quero ser" not in folded and "quero jogar" not in folded:
+    if not _fold(text).strip():
         return None
-    return match_known_build(text) or _unknown_fallback("nenhum apelido na tabela")
+    return match_known_build(text)
 
 
 def _unknown_fallback(motivo: str) -> dict:
@@ -381,8 +398,7 @@ async def _read_json(gateway, messages) -> str:
 
 
 async def resolve_quero(text: str, gateway=None) -> dict | None:
-    folded = _fold(text)
-    if "quero ser" not in folded and "quero jogar" not in folded:
+    if not _fold(text).strip():
         return None
     known = match_known_build(text)
     if known:
