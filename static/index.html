@@ -55,23 +55,24 @@
       <button type="submit">Criar ficha</button>
     </form>
 
-    <h2>Sagas</h2>
+    <h2>Missões</h2>
     <form id="nova-saga">
       <label for="personagem">Personagem</label>
       <select id="personagem" name="personagemId" required></select>
-      <button type="submit">Nova saga</button>
+      <button type="submit">Nova missão</button>
     </form>
     <ul id="sagas"></ul>
 
     <h2 id="saga-titulo">Crônica</h2>
     <div id="log"></div>
+    <p id="objetivo"></p>
     <p id="memoria"></p>
     <p id="mundo"></p>
     <form id="acao">
       <label for="texto">Sua ação</label>
       <textarea id="texto" name="texto" maxlength="1500"></textarea>
       <button type="submit">Enviar</button>
-      <button type="button" id="comecar">Começar a saga</button>
+      <button type="button" id="comecar">Começar de novo</button>
     </form>
   </section>
   <script src="/static/app.js"></script>

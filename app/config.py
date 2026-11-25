@@ -49,12 +49,25 @@ def _int(name: str, value: str, default: int) -> int:
         raise ConfigError(f"{name} precisa ser um inteiro.") from exc
 
 
+# Em nov/2026 a Google ainda serve gemini-2.5-flash-lite, mas só para contas
+# que já o usavam. Projeto novo usa o Flash-Lite atual.
+DEFAULT_GEMINI_MODEL = "gemini/gemini-3.5-flash-lite"
+
+
+def expose_provider_errors(settings: Settings) -> bool:
+    """Em localhost ou com RPG_DEBUG, o jogador vê um motivo curto e sem segredo."""
+    if settings.debug:
+        return True
+    return settings.host.strip().lower() in {"127.0.0.1", "localhost", "::1"}
+
+
 @dataclass(frozen=True)
 class Settings:
     database_path: str = "data/rpg.sqlite"
     fake: bool = False
+    debug: bool = False
     gemini_api_key: str = ""
-    gemini_model: str = "gemini/gemini-2.5-flash-lite"
+    gemini_model: str = DEFAULT_GEMINI_MODEL
     openrouter_api_key: str = ""
     openrouter_model: str = "google/gemma-4-26b-a4b-it:free"
     cloudflare_api_key: str = ""
@@ -114,9 +127,9 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
     return Settings(
         database_path=get("DATABASE_PATH", "data/rpg.sqlite"),
         fake=_bool(get("RPG_LLM_FAKE")),
+        debug=_bool(get("RPG_DEBUG")),
         gemini_api_key=one_secret("GEMINI_API_KEY", get("GEMINI_API_KEY")),
-        gemini_model=get("LLM_GEMINI_MODEL", "gemini/gemini-2.5-flash-lite").strip()
-        or "gemini/gemini-2.5-flash-lite",
+        gemini_model=get("LLM_GEMINI_MODEL", DEFAULT_GEMINI_MODEL).strip() or DEFAULT_GEMINI_MODEL,
         openrouter_api_key=one_secret("OPENROUTER_API_KEY", get("OPENROUTER_API_KEY")),
         openrouter_model=get("LLM_OPENROUTER_MODEL", "google/gemma-4-26b-a4b-it:free").strip()
         or "google/gemma-4-26b-a4b-it:free",

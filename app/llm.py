@@ -2,9 +2,21 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
-from app.config import ConfigError, Settings
+from app.config import ConfigError, Settings, expose_provider_errors
+
+log = logging.getLogger("uvicorn.error")
+
+PROVIDER_LABELS = {
+    "gemini": "Gemini",
+    "openrouter": "OpenRouter",
+    "cloudflare": "Cloudflare",
+    "groq": "Groq",
+    "deepseek": "DeepSeek",
+    "fake": "Falso",
+}
 
 FREE_ENTRY = "narrador-gratis"
 PAID_ENTRY = "narrador-pago"
@@ -29,10 +41,89 @@ class Piece:
 
 
 class NarratorUnavailable(Exception):
-    def __init__(self, message: str, *, public: bool = False):
+    def __init__(
+        self,
+        message: str,
+        *,
+        public: bool = False,
+        provider: str = "",
+        model: str = "",
+        reason: str = "",
+    ):
         super().__init__(message)
         self.message = message
         self.public = public
+        self.provider = provider
+        self.model = model
+        self.reason = reason
+
+
+def provider_label(model: str) -> str:
+    key = provider_of(model)
+    return PROVIDER_LABELS.get(key, key or "Narrador")
+
+
+def classify_provider_error(exc: BaseException, label: str) -> str:
+    """Motivo curto para o jogador. Não inclui chave nem corpo do pedido."""
+    text = f"{type(exc).__name__} {exc}".lower()
+    if any(token in text for token in ("api key", "api_key", "invalid key", "unauthenticated", "permission denied", "401", "403")):
+        return f"{label}: chave inválida"
+    if any(token in text for token in ("not found", "404", "model_not_found", "unknown model", "is not supported", "invalid model")):
+        return f"{label}: modelo não encontrado"
+    if any(token in text for token in ("429", "rate limit", "ratelimit", "quota", "resource exhausted", "too many requests")):
+        return f"{label}: limite atingido"
+    return f"{label}: {type(exc).__name__}"
+
+
+def player_failure_text(exc: NarratorUnavailable, settings: Settings) -> str:
+    if exc.public:
+        return exc.message
+    base = "Os narradores não responderam agora. Sua história está salva. Tente de novo em instantes."
+    if expose_provider_errors(settings) and exc.reason:
+        return f"{base} {exc.reason}"
+    return base
+
+
+def log_narrator_failure(exc: NarratorUnavailable, secrets: tuple[str, ...]) -> None:
+    cause = exc.__cause__ or exc
+    detail = redact(str(cause), secrets)
+    log.error(
+        "narrador falhou provedor=%s modelo=%s tipo=%s detalhe=%s",
+        exc.provider or "?",
+        exc.model or "?",
+        type(cause).__name__,
+        detail,
+    )
+
+
+def log_startup(settings: Settings) -> None:
+    if settings.fake:
+        log.warning("RPG_LLM_FAKE=1: narrador falso, sem chamada remota.")
+        return
+    configured: list[str] = []
+    catalog = (
+        ("Gemini", bool(settings.gemini_api_key), settings.gemini_model),
+        ("OpenRouter", bool(settings.openrouter_api_key), settings.openrouter_model),
+        (
+            "Cloudflare",
+            bool(settings.cloudflare_api_key and settings.cloudflare_account_id),
+            settings.cloudflare_model,
+        ),
+    )
+    for name, ready, model in catalog:
+        if ready:
+            log.info("Provedor configurado: %s modelo %s", name, model)
+            configured.append(name)
+        else:
+            log.info("Provedor sem chave: %s (modelo previsto %s)", name, model)
+    if settings.paid_api_key:
+        log.info("Rota paga configurada: modelo %s", settings.paid_model)
+    else:
+        log.info("Rota paga sem chave (LLM_PAID_API_KEY).")
+    if not configured:
+        log.warning(
+            "Nenhuma chave do pool grátis. Os turnos vão falhar até você definir GEMINI_API_KEY ou RPG_LLM_FAKE=1."
+        )
 
 
 def provider_of(model: str) -> str:
@@ -277,6 +368,8 @@ class LiteLLMGateway:
                 "Defina a chave do Gemini, do OpenRouter ou do Cloudflare.",
                 public=True,
             )
+        model_id, label = self._target(route, entry)
+        log.info("Narrando rota=%s provedor=%s modelo=%s", route, label, model_id)
         try:
             response = await self.router.acompletion(
                 model=entry,
@@ -286,7 +379,7 @@ class LiteLLMGateway:
                 max_tokens=self.settings.max_output_tokens,
             )
         except Exception as exc:
-            raise NarratorUnavailable(redact(str(exc), self.spec.secrets)) from exc
+            raise self._failure(exc, label, model_id) from exc
         try:
             async for chunk in response:
                 prompt_tokens, completion_tokens = chunk_usage(chunk)
@@ -300,7 +393,29 @@ class LiteLLMGateway:
                         completion_tokens=completion_tokens,
                     )
         except Exception as exc:
-            raise NarratorUnavailable(redact(str(exc), self.spec.secrets)) from exc
+            raise self._failure(exc, label, model_id) from exc
+
+    def _target(self, route: str, entry: str) -> tuple[str, str]:
+        if route == "paid":
+            for item in self.spec.model_list:
+                if item["model_name"] == entry:
+                    model_id = str(item["litellm_params"]["model"])
+                    return model_id, provider_label(model_id)
+        else:
+            for item in self.spec.model_list:
+                if item["model_name"] != PAID_ENTRY:
+                    model_id = str(item["litellm_params"]["model"])
+                    return model_id, provider_label(model_id)
+        return entry, "Narrador"
+
+    def _failure(self, exc: Exception, label: str, model_id: str) -> NarratorUnavailable:
+        reason = classify_provider_error(exc, label)
+        return NarratorUnavailable(
+            redact(str(exc), self.spec.secrets),
+            provider=label,
+            model=model_id,
+            reason=reason,
+        )
 
 
 def build_gateway(settings: Settings):

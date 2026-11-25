@@ -12,6 +12,7 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
+from app.missions import mission_by_id
 from app.plans import trial_ends
 from app.story import Character
 
@@ -59,7 +60,10 @@ class Store:
 
     def close(self) -> None:
         with self._lock:
+            if self._db is None:
+                return
             self._db.close()
+            self._db = None
 
     def _migrate(self) -> None:
         self._db.executescript(
@@ -95,6 +99,9 @@ class Store:
                 title TEXT NOT NULL,
                 world_json TEXT NOT NULL,
                 summary TEXT NOT NULL,
+                kind TEXT NOT NULL DEFAULT 'missao',
+                script_id TEXT,
+                recommended_level INTEGER,
                 created_at INTEGER NOT NULL,
                 updated_at INTEGER NOT NULL
             );
@@ -126,6 +133,13 @@ class Store:
             );
             """
         )
+        columns = {row[1] for row in self._db.execute("PRAGMA table_info(sagas)")}
+        if "kind" not in columns:
+            self._db.execute("ALTER TABLE sagas ADD COLUMN kind TEXT NOT NULL DEFAULT 'missao'")
+        if "script_id" not in columns:
+            self._db.execute("ALTER TABLE sagas ADD COLUMN script_id TEXT")
+        if "recommended_level" not in columns:
+            self._db.execute("ALTER TABLE sagas ADD COLUMN recommended_level INTEGER")
 
     def _user_from(self, row: sqlite3.Row) -> User:
         return User(
@@ -245,16 +259,41 @@ class Store:
             attributes=json.loads(row["attributes_json"]),
         )
 
-    def create_saga(self, user_id: str, character: Character, world: dict, now: int) -> dict:
+    def create_saga(
+        self,
+        user_id: str,
+        character: Character,
+        world: dict,
+        now: int,
+        *,
+        title: str | None = None,
+        kind: str = "missao",
+        script_id: str | None = None,
+        recommended_level: int | None = None,
+    ) -> dict:
         saga_id = str(uuid.uuid4())
-        title = f"Saga de {character.name}"
+        stored_title = title or f"Saga de {character.name}"
         with self._lock:
             self._db.execute(
                 """
-                INSERT INTO sagas (id, user_id, character_id, title, world_json, summary, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, '', ?, ?)
+                INSERT INTO sagas (
+                    id, user_id, character_id, title, world_json, summary,
+                    kind, script_id, recommended_level, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?)
                 """,
-                (saga_id, user_id, character.id, title, json.dumps(world, ensure_ascii=False), now, now),
+                (
+                    saga_id,
+                    user_id,
+                    character.id,
+                    stored_title,
+                    json.dumps(world, ensure_ascii=False),
+                    kind,
+                    script_id,
+                    recommended_level,
+                    now,
+                    now,
+                ),
             )
             self._db.commit()
         return self.get_saga(user_id, saga_id)
@@ -263,7 +302,7 @@ class Store:
         with self._lock:
             rows = self._db.execute(
                 """
-                SELECT id, title, updated_at, character_id FROM sagas
+                SELECT id, title, updated_at, character_id, kind FROM sagas
                 WHERE user_id = ? ORDER BY updated_at DESC
                 """,
                 (user_id,),
@@ -274,6 +313,7 @@ class Store:
                 "titulo": row["title"],
                 "atualizadaEm": row["updated_at"],
                 "personagemId": row["character_id"],
+                "tipo": row["kind"] if "kind" in row.keys() else "missao",
             }
             for row in rows
         ]
@@ -294,18 +334,11 @@ class Store:
                 (saga_id,),
             ).fetchall()
         ordered = list(reversed(messages))
-        return {
-            "id": row["id"],
-            "titulo": row["title"],
-            "personagemId": row["character_id"],
-            "mundo": json.loads(row["world_json"]),
-            "resumo": row["summary"],
-            "criadaEm": row["created_at"],
-            "atualizadaEm": row["updated_at"],
-            "mensagens": [
-                {"papel": item["role"], "texto": item["content"], "em": item["created_at"]} for item in ordered
-            ],
-        }
+        payload = self._saga_fields(row)
+        payload["mensagens"] = [
+            {"papel": item["role"], "texto": item["content"], "em": item["created_at"]} for item in ordered
+        ]
+        return payload
 
     def saga_memory(self, user_id: str, saga_id: str) -> dict | None:
         """Estado usado pelo narrador, incluindo o histórico que cabe na janela."""
@@ -320,13 +353,26 @@ class Store:
                 "SELECT role, content FROM messages WHERE saga_id = ? ORDER BY created_at",
                 (saga_id,),
             ).fetchall()
+        payload = self._saga_fields(row)
+        payload["mensagens"] = [{"role": item["role"], "content": item["content"]} for item in messages]
+        return payload
+
+    def _saga_fields(self, row: sqlite3.Row) -> dict:
+        keys = row.keys()
+        script_id = row["script_id"] if "script_id" in keys else None
+        mission = mission_by_id(script_id)
         return {
             "id": row["id"],
             "titulo": row["title"],
             "personagemId": row["character_id"],
+            "tipo": row["kind"] if "kind" in keys else "missao",
+            "roteiroId": script_id,
+            "nivelSugerido": row["recommended_level"] if "recommended_level" in keys else None,
+            "objetivo": mission.objective if mission else None,
             "mundo": json.loads(row["world_json"]),
             "resumo": row["summary"],
-            "mensagens": [{"role": item["role"], "content": item["content"]} for item in messages],
+            "criadaEm": row["created_at"],
+            "atualizadaEm": row["updated_at"],
         }
 
     def save_turn(

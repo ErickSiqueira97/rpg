@@ -7,6 +7,7 @@ import re
 import sqlite3
 import time
 from collections.abc import AsyncIterator, Callable
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
@@ -16,7 +17,8 @@ from app.billing import ACTIVATED, CANCELED, WEBHOOK_CONTRACT, apply_billing_eve
 from app.config import Settings, load_settings
 from app.db import Store
 from app.gate import Gate
-from app.llm import build_gateway, build_spec
+from app.llm import build_gateway, build_spec, log_startup
+from app.missions import STARTER, mission_by_id
 from app.moderation import Moderator
 from app.narrator import GameEvent, Narrator, new_saga_world
 from app.plans import daily_limit, day_key, days_left, effective_plan, next_reset_at
@@ -26,17 +28,27 @@ USERNAME = re.compile(r"^[A-Za-z0-9_\u00C0-\u024f]{3,24}$")
 STATIC = "static"
 
 
-def create_app(settings: Settings | None = None, now: Callable[[], int] | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None,
+    now: Callable[[], int] | None = None,
+    gateway: object | None = None,
+) -> FastAPI:
     settings = settings or load_settings()
     clock = now or (lambda: int(time.time()))
     store = Store(settings.database_path)
-    gateway = build_gateway(settings)
+    gateway = gateway or build_gateway(settings)
     moderator = Moderator(settings.moderation, settings.moderation_terms, settings.moderation_webhook)
     gate = Gate(settings.max_concurrent, settings.max_waiting, settings.queue_wait_seconds)
     narrator = Narrator(store, gateway, gate, moderator, settings, clock)
     providers: list[str] = ["fake"] if settings.fake else list(build_spec(settings).providers)
 
-    app = FastAPI(title="RPG Multiverso")
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        log_startup(settings)
+        yield
+        store.close()
+
+    app = FastAPI(title="RPG Multiverso", lifespan=lifespan)
     app.state.settings = settings
     app.state.store = store
     app.state.gateway = gateway
@@ -118,7 +130,23 @@ def create_app(settings: Settings | None = None, now: Callable[[], int] | None =
         character = store.get_character(user.id, str(body.get("personagemId") or ""))
         if character is None:
             return _erro(404, "nao_encontrado", "Ficha não encontrada.")
-        saga = store.create_saga(user.id, character, new_saga_world(character), clock())
+        requested = str(body.get("roteiroId") or "")
+        if requested:
+            script = mission_by_id(requested)
+            if script is None:
+                return _erro(404, "roteiro", "Missão desconhecida.")
+        else:
+            script = STARTER
+        saga = store.create_saga(
+            user.id,
+            character,
+            new_saga_world(character, script),
+            clock(),
+            title=script.title,
+            kind=script.kind,
+            script_id=script.id,
+            recommended_level=script.recommended_level,
+        )
         return saga
 
     @app.get("/api/sagas")

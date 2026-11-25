@@ -20,7 +20,7 @@ Não havia servidor, banco, conta de jogador nem chamada de modelo. A página di
 - Várias sagas por jogador. Dá para sair e continuar: histórico, ficha, estado do mundo e o resumo da saga ficam no SQLite.
 - Narrador via [LiteLLM](https://docs.litellm.ai/) (MIT), no mesmo processo. Cada provedor entra com **um modelo fixo** e **uma chave**.
 - Pool grátis, nesta ordem, só com as chaves que existirem:
-  1. **Gemini Flash-Lite** (`gemini/gemini-2.5-flash-lite`)
+  1. **Gemini Flash-Lite** (`gemini/gemini-3.5-flash-lite`)
   2. **OpenRouter**, um id fixo terminado em `:free` (não o roteador `openrouter/free`, que troca de modelo)
   3. **Cloudflare Workers AI**, Llama 3.1 8B na variante `@cf/meta/llama-3.1-8b-instruct-fast`
 - Se o provedor da vez falha ou está indisponível, o LiteLLM tenta o próximo com **o mesmo pacote de contexto**. Não há segunda conta do mesmo provedor: o processo recusa chave duplicada e recusa uma rota paga com outra chave do provedor que já está no pool.
@@ -34,7 +34,48 @@ Não havia servidor, banco, conta de jogador nem chamada de modelo. A página di
 
 ## Rodar localmente com um provedor grátis
 
-Requisito: Python 3.12.
+Requisito: Python 3.12. Os comandos abaixo partem da pasta do repositório.
+
+### Windows (PowerShell)
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+Copy-Item .env.example .env
+```
+
+Se a execução de scripts estiver bloqueada, use `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` e ative de novo. Coloque a chave no `.env`:
+
+```powershell
+notepad .env
+```
+
+```text
+GEMINI_API_KEY=sua-chave
+LLM_GEMINI_MODEL=gemini/gemini-3.5-flash-lite
+```
+
+```powershell
+python -m app.main
+```
+
+Sem chave, só para ver o fluxo (o narrador é falso):
+
+```powershell
+$env:RPG_LLM_FAKE = "1"
+python -m app.main
+```
+
+Para atualizar esta branch:
+
+```powershell
+git fetch origin
+git checkout cursor/rpg-textual-mvp-ece9
+git pull origin cursor/rpg-textual-mvp-ece9
+```
+
+### Linux e macOS
 
 ```bash
 python3 -m venv .venv
@@ -47,22 +88,22 @@ O caminho mais simples no pool grátis é uma chave do [Google AI Studio](https:
 
 ```bash
 GEMINI_API_KEY=sua-chave
-LLM_GEMINI_MODEL=gemini/gemini-2.5-flash-lite
+LLM_GEMINI_MODEL=gemini/gemini-3.5-flash-lite
 ```
-
-Confira o id do Flash-Lite no AI Studio. Se o nome do modelo mudou, troque só `LLM_GEMINI_MODEL` (com ou sem o prefixo `gemini/`).
 
 ```bash
 python -m app.main
 ```
 
-Abra `http://127.0.0.1:8000`. Cadastre um usuário, crie a ficha (os atributos já vêm com os 12 pontos), comece uma saga e escreva uma ação. A resposta chega em streaming.
-
-Sem chave nenhuma, dá para ver o fluxo com um narrador falso (não chama a rede e não conduz uma história de verdade):
+Sem chave:
 
 ```bash
 RPG_LLM_FAKE=1 python -m app.main
 ```
+
+Abra `http://127.0.0.1:8000`. Cadastre um usuário, crie a ficha (os atributos já vêm com os 12 pontos) e clique em **Nova missão**. A cena de abertura é pedida sozinha. A resposta chega em streaming. Se o modelo recusar a chave, o motivo aparece em vermelho no chat e o erro completo (sem a chave) sai no terminal.
+
+Em novembro de 2026, `gemini-2.5-flash-lite` ainda existe na API, mas a Google só o oferece a contas que já o usavam. Conta nova deve usar `gemini-3.5-flash-lite`, que é o padrão daqui. Se o id mudar de novo, troque só `LLM_GEMINI_MODEL`. Com `RPG_DEBUG=1` (ou com o servidor em `127.0.0.1`, que já é o padrão), a mensagem no chat inclui um motivo curto: chave inválida, modelo não encontrado ou limite atingido.
 
 ## Trocar de provedor
 
@@ -119,4 +160,5 @@ Os testes não chamam provedor de verdade. O de carga sobe o app com o narrador 
 - GitHub Models foi encerrado em 30/07/2026, então não entra no pool.
 - Os ids de modelo e os tetos grátis mudam. Os valores do `.env.example` são ponto de partida (o id `:free` do OpenRouter foi visto na lista pública em 25/11/2026), não um contrato com o provedor.
 - A variante `@cf/meta/llama-3.1-8b-instruct` (sem `-fast`) foi descontinuada no Workers AI. O padrão é a variante `-fast`, que continua sendo Llama 3.1 8B. Confira o catálogo se a Cloudflare aposentar essa também.
-- A tela é funcional e crua. Não há ilustração nem campanha pronta: quem conduz o mundo é o narrador, a partir da ficha.
+- A tela é funcional e crua. A primeira partida é uma missão curta pronta, «O sinal do farol», em Porto de Véspera. Sagas longas, com capítulos, ficam só reservadas no banco (`tipo`, `roteiroId`, `nivelSugerido`); a economia disso não existe ainda.
+- `gemini-2.5-flash-lite` não é mais o padrão: em novembro de 2026 a Google limita essa família a quem já usava. O padrão passou a `gemini-3.5-flash-lite`.

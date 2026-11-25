@@ -1,9 +1,11 @@
 from types import SimpleNamespace
 
+import logging
+
 import pytest
 
-from app.config import ConfigError, Settings, load_settings
-from app.llm import LiteLLMGateway, NarratorUnavailable, build_spec
+from app.config import DEFAULT_GEMINI_MODEL, ConfigError, Settings, load_settings
+from app.llm import LiteLLMGateway, NarratorUnavailable, build_spec, classify_provider_error, log_startup
 
 
 def test_pool_tem_uma_conta_por_provedor_e_fallback_nessa_ordem():
@@ -24,7 +26,7 @@ def test_pool_tem_uma_conta_por_provedor_e_fallback_nessa_ordem():
     names = [item["model_name"] for item in spec.model_list]
     assert names.count("narrador-gratis") == 1
     assert len(names) == len(set(names))
-    assert spec.model_list[0]["litellm_params"]["model"] == "gemini/gemini-2.5-flash-lite"
+    assert spec.model_list[0]["litellm_params"]["model"] == DEFAULT_GEMINI_MODEL
     assert spec.model_list[1]["litellm_params"]["model"].endswith(":free")
     assert spec.model_list[1]["litellm_params"]["model"] != "openrouter/free"
     assert "accounts/conta-cf/ai/v1" in spec.model_list[2]["litellm_params"]["api_base"]
@@ -43,7 +45,7 @@ def test_recusa_varias_chaves_e_roteador_aleatorio():
             Settings(
                 gemini_api_key="conta-a",
                 paid_api_key="conta-b",
-                paid_model="gemini/gemini-2.5-flash-lite",
+                paid_model=DEFAULT_GEMINI_MODEL,
             )
         )
 
@@ -104,3 +106,17 @@ async def test_erro_do_provedor_nao_vaza_a_chave(monkeypatch):
             pass
     assert "gemini-secret" not in caught.value.message
     assert caught.value.public is False
+    assert caught.value.reason == "Gemini: RuntimeError"
+
+
+def test_classifica_falha_do_provedor():
+    assert classify_provider_error(RuntimeError("401 API key not valid"), "Gemini") == "Gemini: chave inválida"
+    assert classify_provider_error(RuntimeError("model gemini-x was not found"), "Gemini") == "Gemini: modelo não encontrado"
+    assert classify_provider_error(RuntimeError("429 rate limit exceeded"), "Gemini") == "Gemini: limite atingido"
+
+
+def test_sobe_avisando_se_nao_ha_chave(caplog):
+    caplog.set_level(logging.INFO, logger="uvicorn.error")
+    log_startup(Settings())
+    assert "gemini-3.5-flash-lite" in caplog.text
+    assert "Nenhuma chave do pool grátis" in caplog.text

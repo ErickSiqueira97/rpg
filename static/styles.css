@@ -8,3 +8,5 @@ button { margin-right: 0.4rem; }
 #status { min-height: 1.2em; }
 .jogador { margin: 0 0 0.4rem; }
 .narrador { margin: 0 0 0.8rem; }
+.narrando { margin: 0 0 0.8rem; color: #333; font-style: italic; }
+.erro-chat { margin: 0.6rem 0; padding: 0.6rem; background: #fde8e8; color: #7f1d1d; border: 1px solid #b91c1c; font-weight: 600; }

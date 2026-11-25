@@ -9,11 +9,11 @@ from dataclasses import dataclass
 from app.config import Settings
 from app.db import Store
 from app.gate import Gate, GateFull, GateTimeout
-from app.llm import NarratorUnavailable
+from app.llm import NarratorUnavailable, log_narrator_failure, player_failure_text
+from app.missions import format_script, mission_by_id, opening_command
 from app.moderation import Moderator
 from app.plans import daily_limit, day_key, effective_plan, llm_route, next_reset_at
 from app.story import (
-    OPENING_COMMAND,
     Character,
     NarrativeExtractor,
     StoryMessage,
@@ -74,9 +74,11 @@ class Narrator:
                 400,
             )
             return
+        mission = mission_by_id(memory.get("roteiroId"))
+        script_text = format_script(mission) if mission else ""
         player_text = None
         if abertura:
-            action = OPENING_COMMAND
+            action = opening_command(mission)
         else:
             player_text = " ".join((texto or "").split())
             if not player_text:
@@ -112,6 +114,7 @@ class Narrator:
                     summary=memory["resumo"],
                     recent=[StoryMessage(item["role"], item["content"]) for item in memory["mensagens"]],
                     action=action,
+                    script=script_text,
                     max_recent=self.settings.max_recent,
                     max_context_tokens=self.settings.max_context_tokens,
                     summary_max_tokens=self.settings.summary_max_tokens,
@@ -136,14 +139,10 @@ class Narrator:
                             if prose:
                                 yield GameEvent("token", {"texto": prose})
                 except NarratorUnavailable as exc:
+                    log_narrator_failure(exc, self.settings.secrets)
                     yield GameEvent(
                         "erro",
-                        {
-                            "codigo": "narrador",
-                            "mensagem": exc.message
-                            if exc.public
-                            else "Os narradores não responderam agora. Sua história está salva. Tente de novo em instantes.",
-                        },
+                        {"codigo": "narrador", "mensagem": player_failure_text(exc, self.settings)},
                         503,
                     )
                     return
@@ -241,5 +240,5 @@ class Narrator:
         )
 
 
-def new_saga_world(character: Character) -> dict:
-    return initial_world(character)
+def new_saga_world(character: Character, mission: object | None = None) -> dict:
+    return initial_world(character, mission)

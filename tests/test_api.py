@@ -1,8 +1,11 @@
 import httpx
 import pytest
 
+import logging
+
 from app.config import Settings
 from app.factory import create_app
+from app.llm import NarratorUnavailable
 from app.story import SYSTEM_PROMPT
 
 SHEET = {
@@ -196,3 +199,88 @@ async def test_streaming_e_moderacao(tmp_path):
         assert "event: done" in body
         assert "névoa" in body
     app.state.store.close()
+
+
+@pytest.mark.asyncio
+async def test_nova_missao_abre_com_o_roteiro(client, app):
+    headers, saga_id = await jogar(client)
+    created = await client.get(f"/api/sagas/{saga_id}", headers=headers)
+    body = created.json()
+    assert body["tipo"] == "missao"
+    assert body["roteiroId"] == "farol-de-vespera"
+    assert body["nivelSugerido"] == 1
+    assert "farol" in body["objetivo"].lower()
+    assert body["mensagens"] == []
+    assert body["mundo"]["lugar"] == "Porto de Véspera"
+
+    opened = await client.post(f"/api/sagas/{saga_id}/turnos", headers=headers, json={"abertura": True})
+    assert opened.status_code == 200
+    sent = "\n".join(item["content"] for item in app.state.gateway.calls[-1][1])
+    assert "farol" in sent.lower()
+    assert "caixa" in sent.lower()
+    assert "Porto de Véspera" in sent
+
+
+class _ChaveInvalida:
+    async def stream(self, route, messages):
+        raise NarratorUnavailable(
+            "API key not valid secret-key",
+            provider="Gemini",
+            model="gemini/gemini-3.5-flash-lite",
+            reason="Gemini: chave inválida",
+        )
+        yield None
+
+
+@pytest.mark.asyncio
+async def test_erro_do_narrador_vai_para_o_chat_e_para_o_log(tmp_path, caplog):
+    caplog.set_level(logging.ERROR, logger="uvicorn.error")
+    settings = Settings(
+        database_path=str(tmp_path / "rpg.sqlite"),
+        fake=True,
+        moderation="off",
+        gemini_api_key="secret-key",
+        host="127.0.0.1",
+    )
+    app = create_app(settings, gateway=_ChaveInvalida())
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        headers, saga_id = await jogar(client)
+        failed = await client.post(
+            f"/api/sagas/{saga_id}/turnos",
+            headers=headers,
+            json={"texto": "teste"},
+        )
+        assert failed.status_code == 503
+        assert "Gemini: chave inválida" in failed.json()["mensagem"]
+        assert "secret-key" not in failed.json()["mensagem"]
+        async with client.stream(
+            "POST",
+            f"/api/sagas/{saga_id}/turnos",
+            headers={**headers, "Accept": "text/event-stream"},
+            json={"texto": "teste"},
+        ) as response:
+            sse = (await response.aread()).decode()
+        assert "event: erro" in sse
+        assert "Gemini: chave inválida" in sse
+        saved = await client.get(f"/api/sagas/{saga_id}", headers=headers)
+        assert saved.json()["mensagens"] == []
+    assert "narrador falhou" in caplog.text
+    assert "provedor=Gemini" in caplog.text
+    assert "secret-key" not in caplog.text
+    quiet = Settings(
+        database_path=str(tmp_path / "quiet.sqlite"),
+        fake=True,
+        moderation="off",
+        host="0.0.0.0",
+        debug=False,
+    )
+    hidden = create_app(quiet, gateway=_ChaveInvalida())
+    transport = httpx.ASGITransport(app=hidden)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        headers, saga_id = await jogar(client)
+        failed = await client.post(f"/api/sagas/{saga_id}/turnos", headers=headers, json={"texto": "teste"})
+        assert "chave inválida" not in failed.json()["mensagem"]
+        assert "não responderam" in failed.json()["mensagem"]
+    app.state.store.close()
+    hidden.state.store.close()

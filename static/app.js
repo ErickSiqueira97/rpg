@@ -150,10 +150,25 @@ document.querySelector("#nova-saga").addEventListener("submit", async (event) =>
     });
     await carregarSagas();
     await abrirSaga(saga.id);
+    if (!saga.mensagens || saga.mensagens.length === 0) {
+      await enviarTurno({ abertura: true });
+    }
   } catch (error) {
-    say(error.message);
+    erroNoLog(error.message);
   }
 });
+
+function mostrarErro(node, message) {
+  node.className = "erro-chat";
+  node.textContent = message;
+  say(message);
+}
+
+function erroNoLog(message) {
+  const node = paragrafo("erro-chat", message);
+  logEl.append(node);
+  say(message);
+}
 
 function paragrafo(className, text) {
   const el = document.createElement("p");
@@ -171,6 +186,7 @@ async function abrirSaga(id) {
     const mine = mensagem.papel === "player";
     logEl.append(paragrafo(mine ? "jogador" : "narrador", (mine ? "Você: " : "") + mensagem.texto));
   });
+  document.querySelector("#objetivo").textContent = saga.objetivo ? "Objetivo: " + saga.objetivo : "";
   document.querySelector("#memoria").textContent = saga.resumo ? "Memória: " + saga.resumo : "Memória: (vazia)";
   document.querySelector("#mundo").textContent = resumoMundo(saga.mundo);
   document.querySelector("#comecar").hidden = saga.mensagens.length > 0;
@@ -196,8 +212,9 @@ async function enviarTurno(payload) {
   const comecar = document.querySelector("#comecar");
   button.disabled = true;
   comecar.disabled = true;
-  const atual = paragrafo("narrador", "");
+  const atual = paragrafo("narrando", "Narrando…");
   logEl.append(atual);
+  say("Narrando…");
   try {
     const response = await api("/api/sagas/" + sagaId + "/turnos", {
       method: "POST",
@@ -206,8 +223,7 @@ async function enviarTurno(payload) {
     });
     await lerEventos(response, atual, payload.texto);
   } catch (error) {
-    atual.remove();
-    say(error.message);
+    mostrarErro(atual, error.message);
   } finally {
     button.disabled = false;
     comecar.disabled = false;
@@ -230,6 +246,10 @@ async function lerEventos(response, atual, acao) {
       const dataLine = part.split("\n").filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trim()).join("\n");
       const data = dataLine ? JSON.parse(dataLine) : {};
       if (event === "token") {
+        if (atual.className !== "narrador") {
+          atual.className = "narrador";
+          atual.textContent = "";
+        }
         if (acao && !playerNode) {
           playerNode = paragrafo("jogador", "Você: " + acao);
           logEl.insertBefore(playerNode, atual);
@@ -251,13 +271,13 @@ async function lerEventos(response, atual, acao) {
       } else if (event === "troca") {
         atual.textContent = data.texto || "";
       } else if (event === "erro" || event === "cota") {
-        atual.remove();
         if (playerNode) playerNode.remove();
-        say(data.mensagem || "Não foi possível narrar.");
+        mostrarErro(atual, data.mensagem || "Não foi possível narrar.");
         if (data.assinaturaUrl) {
           const link = document.createElement("a");
           link.href = data.assinaturaUrl;
           link.textContent = " Assinar";
+          statusEl.append(document.createTextNode(" "));
           statusEl.append(link);
         }
       }
