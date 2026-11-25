@@ -52,6 +52,7 @@ def _int(name: str, value: str, default: int) -> int:
 # Em nov/2026 a Google ainda serve gemini-2.5-flash-lite, mas só para contas
 # que já o usavam. Projeto novo usa o Flash-Lite atual.
 DEFAULT_GEMINI_MODEL = "gemini/gemini-3.5-flash-lite"
+DEFAULT_GEMINI_FALLBACK = "gemini/gemini-3.6-flash"
 
 
 def expose_provider_errors(settings: Settings) -> bool:
@@ -68,6 +69,8 @@ class Settings:
     debug: bool = False
     gemini_api_key: str = ""
     gemini_model: str = DEFAULT_GEMINI_MODEL
+    gemini_fallback_model: str = DEFAULT_GEMINI_FALLBACK
+    first_token_seconds: float = 15
     openrouter_api_key: str = ""
     openrouter_model: str = "google/gemma-4-26b-a4b-it:free"
     cloudflare_api_key: str = ""
@@ -90,7 +93,7 @@ class Settings:
     message_max_tokens: int = 180
     temperature: float = 0.8
     max_output_tokens: int = 700
-    llm_timeout: float = 40
+    llm_timeout: float = 30
     moderation: str = "basic"
     moderation_webhook: str = ""
     moderation_terms: tuple[str, ...] = ()
@@ -130,6 +133,9 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
         debug=_bool(get("RPG_DEBUG")),
         gemini_api_key=one_secret("GEMINI_API_KEY", get("GEMINI_API_KEY")),
         gemini_model=get("LLM_GEMINI_MODEL", DEFAULT_GEMINI_MODEL).strip() or DEFAULT_GEMINI_MODEL,
+        gemini_fallback_model=get("LLM_GEMINI_FALLBACK_MODEL", DEFAULT_GEMINI_FALLBACK).strip()
+        or DEFAULT_GEMINI_FALLBACK,
+        first_token_seconds=float(get("LLM_FIRST_TOKEN_SECONDS", "15") or "15"),
         openrouter_api_key=one_secret("OPENROUTER_API_KEY", get("OPENROUTER_API_KEY")),
         openrouter_model=get("LLM_OPENROUTER_MODEL", "google/gemma-4-26b-a4b-it:free").strip()
         or "google/gemma-4-26b-a4b-it:free",
@@ -154,7 +160,7 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
         message_max_tokens=_int("MESSAGE_MAX_TOKENS", get("MESSAGE_MAX_TOKENS"), 180),
         temperature=float(get("NARRATOR_TEMPERATURE", "0.8") or "0.8"),
         max_output_tokens=_int("NARRATOR_MAX_OUTPUT_TOKENS", get("NARRATOR_MAX_OUTPUT_TOKENS"), 700),
-        llm_timeout=float(get("LLM_TIMEOUT_SECONDS", "40") or "40"),
+        llm_timeout=float(get("LLM_TIMEOUT_SECONDS", "30") or "30"),
         moderation=moderation,
         moderation_webhook=get("MODERATION_WEBHOOK_URL").strip(),
         moderation_terms=terms,

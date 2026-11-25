@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 from dataclasses import dataclass
 
 from app.config import ConfigError, Settings, expose_provider_errors
@@ -72,6 +74,8 @@ def classify_provider_error(exc: BaseException, label: str) -> str:
         return f"{label}: modelo não encontrado"
     if any(token in text for token in ("429", "rate limit", "ratelimit", "quota", "resource exhausted", "too many requests")):
         return f"{label}: limite atingido"
+    if any(token in text for token in ("timeout", "timed out", "primeiro token", "stream vazio")):
+        return f"{label}: tempo esgotado"
     return f"{label}: {type(exc).__name__}"
 
 
@@ -102,7 +106,11 @@ def log_startup(settings: Settings) -> None:
         return
     configured: list[str] = []
     catalog = (
-        ("Gemini", bool(settings.gemini_api_key), settings.gemini_model),
+        (
+            "Gemini",
+            bool(settings.gemini_api_key),
+            f"{settings.gemini_model}; reserva {settings.gemini_fallback_model} (mesma chave)",
+        ),
         ("OpenRouter", bool(settings.openrouter_api_key), settings.openrouter_model),
         (
             "Cloudflare",
@@ -173,6 +181,17 @@ def build_spec(settings: Settings) -> RouterSpec:
                 },
             )
         )
+        fallback = normalize_gemini(settings.gemini_fallback_model)
+        if fallback != model:
+            deployments.append(
+                (
+                    "gemini",
+                    {
+                        "model_name": "narrador-gemini-reserva",
+                        "litellm_params": {"model": fallback, "api_key": settings.gemini_api_key},
+                    },
+                )
+            )
     if settings.openrouter_api_key:
         model = normalize_openrouter(settings.openrouter_model)
         deployments.append(
@@ -235,7 +254,8 @@ def build_spec(settings: Settings) -> RouterSpec:
             fallback_names.append(logical)
         params = dict(item["litellm_params"])
         model_list.append({"model_name": logical, "litellm_params": params})
-        providers.append(name)
+        if name not in providers:
+            providers.append(name)
 
     # Uma implantação por nome lógico: o LiteLLM não embaralha várias contas.
     names = [item["model_name"] for item in model_list]
@@ -328,36 +348,65 @@ class UnconfiguredGateway:
         )
 
 
+@dataclass(frozen=True)
+class Attempt:
+    label: str
+    model: str
+    api_key: str
+    api_base: str = ""
+
+
+def attempts_for(settings: Settings, route: str) -> list[Attempt]:
+    """Ordem de tentativa. Os dois ids do Gemini usam a mesma chave."""
+    if route == "paid":
+        if not settings.paid_api_key:
+            return []
+        return [
+            Attempt(
+                provider_label(settings.paid_model),
+                settings.paid_model,
+                settings.paid_api_key,
+                settings.paid_api_base,
+            )
+        ]
+    attempts: list[Attempt] = []
+    if settings.gemini_api_key:
+        primary = normalize_gemini(settings.gemini_model)
+        attempts.append(Attempt("Gemini", primary, settings.gemini_api_key))
+        fallback = normalize_gemini(settings.gemini_fallback_model)
+        if fallback != primary:
+            attempts.append(Attempt("Gemini", fallback, settings.gemini_api_key))
+    if settings.openrouter_api_key:
+        attempts.append(
+            Attempt("OpenRouter", normalize_openrouter(settings.openrouter_model), settings.openrouter_api_key)
+        )
+    if settings.cloudflare_api_key and settings.cloudflare_account_id:
+        model = normalize_cloudflare(settings.cloudflare_model)
+        base = f"https://api.cloudflare.com/client/v4/accounts/{settings.cloudflare_account_id}/ai/v1"
+        attempts.append(Attempt("Cloudflare", model, settings.cloudflare_api_key, base))
+    return attempts
+
+
+def message_text(response: object) -> str:
+    choices = getattr(response, "choices", None)
+    if not choices:
+        return ""
+    message = getattr(choices[0], "message", None)
+    if message is None:
+        return ""
+    content = getattr(message, "content", None)
+    return content or ""
+
+
 class LiteLLMGateway:
-    def __init__(self, spec: RouterSpec, settings: Settings, router: object | None = None):
+    def __init__(self, spec: RouterSpec, settings: Settings, complete=None):
         self.spec = spec
         self.settings = settings
-        self.router = router if router is not None else self._build_router(spec, settings)
-
-    @staticmethod
-    def _build_router(spec: RouterSpec, settings: Settings):
-        import os
-
-        os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
-        import litellm
-        from litellm import Router
-
-        litellm.telemetry = False
-        litellm.drop_params = True
-        return Router(
-            model_list=spec.model_list,
-            fallbacks=spec.fallbacks,
-            num_retries=0,
-            timeout=settings.llm_timeout,
-            stream_timeout=settings.llm_timeout,
-            allowed_fails=1,
-            cooldown_time=30,
-            routing_strategy="simple-shuffle",
-        )
+        self.complete = complete or _litellm_complete
 
     async def stream(self, route: str, messages: list[dict[str, str]]):
-        entry = self.spec.paid_entry if route == "paid" else self.spec.free_entry
-        if entry is None:
+        attempts = attempts_for(self.settings, route)
+        if not attempts:
             if route == "paid":
                 raise NarratorUnavailable(
                     "A rota paga não está configurada. Defina LLM_PAID_MODEL e LLM_PAID_API_KEY.",
@@ -368,45 +417,117 @@ class LiteLLMGateway:
                 "Defina a chave do Gemini, do OpenRouter ou do Cloudflare.",
                 public=True,
             )
-        model_id, label = self._target(route, entry)
-        log.info("Narrando rota=%s provedor=%s modelo=%s", route, label, model_id)
-        try:
-            response = await self.router.acompletion(
-                model=entry,
-                messages=messages,
-                stream=True,
-                temperature=self.settings.temperature,
-                max_tokens=self.settings.max_output_tokens,
-            )
-        except Exception as exc:
-            raise self._failure(exc, label, model_id) from exc
-        try:
-            async for chunk in response:
-                prompt_tokens, completion_tokens = chunk_usage(chunk)
-                text = chunk_text(chunk)
-                model = chunk_model(chunk)
-                if text or prompt_tokens is not None:
-                    yield Piece(
-                        text=text,
-                        model=model,
-                        prompt_tokens=prompt_tokens,
-                        completion_tokens=completion_tokens,
-                    )
-        except Exception as exc:
-            raise self._failure(exc, label, model_id) from exc
+        last: NarratorUnavailable | None = None
+        sent = False
+        for attempt in attempts:
+            log.info("Narrando rota=%s provedor=%s modelo=%s", route, attempt.label, attempt.model)
+            try:
+                async for piece in self._one(attempt, messages):
+                    if piece.text:
+                        sent = True
+                    yield piece
+                return
+            except Exception as exc:
+                last = self._failure(exc, attempt.label, attempt.model)
+                if sent:
+                    raise last from exc
+                log.warning(
+                    "narrador segue para o próximo modelo=%s motivo=%s",
+                    attempt.model,
+                    last.reason,
+                )
+        assert last is not None
+        raise last
 
-    def _target(self, route: str, entry: str) -> tuple[str, str]:
-        if route == "paid":
-            for item in self.spec.model_list:
-                if item["model_name"] == entry:
-                    model_id = str(item["litellm_params"]["model"])
-                    return model_id, provider_label(model_id)
-        else:
-            for item in self.spec.model_list:
-                if item["model_name"] != PAID_ENTRY:
-                    model_id = str(item["litellm_params"]["model"])
-                    return model_id, provider_label(model_id)
-        return entry, "Narrador"
+    async def _one(self, attempt: Attempt, messages: list[dict[str, str]]):
+        produced = False
+        try:
+            async for piece in self._stream_attempt(attempt, messages):
+                if piece.text:
+                    produced = True
+                yield piece
+            if produced:
+                return
+            raise TimeoutError("stream vazio")
+        except Exception as exc:
+            if produced:
+                raise
+            log.warning(
+                "stream sem texto modelo=%s tipo=%s; tentando sem streaming",
+                attempt.model,
+                type(exc).__name__,
+            )
+        response = await self._call(attempt, messages, stream=False)
+        text = message_text(response)
+        if not text.strip():
+            raise TimeoutError("resposta vazia")
+        yield Piece(text=text, model=attempt.model or chunk_model(response))
+
+    async def _stream_attempt(self, attempt: Attempt, messages: list[dict[str, str]]):
+        response = await self._call(attempt, messages, stream=True)
+        iterator = response.__aiter__()
+        deadline = time.monotonic() + self.settings.first_token_seconds
+        got_text = False
+        try:
+            while not got_text:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError("primeiro token")
+                try:
+                    chunk = await asyncio.wait_for(iterator.__anext__(), remaining)
+                except StopAsyncIteration as exc:
+                    raise TimeoutError("stream vazio") from exc
+                piece = _piece_from_chunk(chunk)
+                if piece.text:
+                    got_text = True
+                    yield piece
+                elif piece.prompt_tokens is not None:
+                    yield piece
+            end = time.monotonic() + self.settings.llm_timeout
+            while True:
+                remaining = end - time.monotonic()
+                if remaining <= 0:
+                    return
+                try:
+                    chunk = await asyncio.wait_for(iterator.__anext__(), remaining)
+                except StopAsyncIteration:
+                    return
+                piece = _piece_from_chunk(chunk)
+                if piece.text or piece.prompt_tokens is not None:
+                    yield piece
+        finally:
+            aclose = getattr(iterator, "aclose", None)
+            if aclose is not None:
+                try:
+                    await aclose()
+                except Exception:
+                    pass
+
+    async def _call(
+        self,
+        attempt: Attempt,
+        messages: list[dict[str, str]],
+        *,
+        stream: bool,
+        max_tokens: int | None = None,
+    ):
+        timeout = self.settings.first_token_seconds if stream else self.settings.llm_timeout
+        kwargs: dict = {
+            "model": attempt.model,
+            "messages": messages,
+            "api_key": attempt.api_key,
+            "stream": stream,
+            "timeout": timeout,
+            "stream_timeout": self.settings.first_token_seconds,
+            "temperature": self.settings.temperature,
+            "max_tokens": self.settings.max_output_tokens if max_tokens is None else max_tokens,
+            "drop_params": True,
+        }
+        if attempt.model.startswith("gemini/"):
+            kwargs["reasoning_effort"] = "minimal"
+        if attempt.api_base:
+            kwargs["api_base"] = attempt.api_base
+        return await self.complete(**kwargs)
 
     def _failure(self, exc: Exception, label: str, model_id: str) -> NarratorUnavailable:
         reason = classify_provider_error(exc, label)
@@ -416,6 +537,27 @@ class LiteLLMGateway:
             model=model_id,
             reason=reason,
         )
+
+
+def _piece_from_chunk(chunk: object) -> Piece:
+    prompt_tokens, completion_tokens = chunk_usage(chunk)
+    return Piece(
+        text=chunk_text(chunk),
+        model=chunk_model(chunk),
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+    )
+
+
+async def _litellm_complete(**kwargs):
+    import os
+
+    os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
+    import litellm
+
+    litellm.telemetry = False
+    litellm.drop_params = True
+    return await litellm.acompletion(**kwargs)
 
 
 def build_gateway(settings: Settings):

@@ -148,6 +148,20 @@ Os testes não chamam provedor de verdade. O de carga sobe o app com o narrador 
 
 `GET /api/saude` lista os provedores configurados, sem as chaves.
 
+Para ver se a chave e o modelo respondem, na pasta do projeto:
+
+```powershell
+python -m app.check_llm
+```
+
+```bash
+python -m app.check_llm
+```
+
+O comando manda um «ok» para cada modelo configurado (o Flash-Lite, a reserva da mesma chave do Gemini, e os outros provedores que tiverem chave) e imprime a latência ou o erro. A chave não aparece.
+
+Se o streaming do Gemini ficar mudo, o turno espera no máximo `LLM_FIRST_TOKEN_SECONDS` (15) pelo primeiro token, tenta o mesmo modelo sem streaming e, se ainda falhar, usa `LLM_GEMINI_FALLBACK_MODEL` com a mesma chave. O padrão da reserva é `gemini/gemini-3.6-flash`, que a tabela de preços de novembro de 2026 marca como grátis. O modelo principal continua `gemini/gemini-3.5-flash-lite`, também grátis. Os dois ids existem na API; o Lite às vezes não entrega token no streaming até estourar o tempo, por isso o pensamento vai em `minimal` e há essa segunda tentativa.
+
 ## Limitações
 
 - A cota do jogador não multiplica a cota do provedor. Gemini, OpenRouter `:free` (hoje, na casa de dezenas de pedidos por dia na conta sem créditos) e o saldo de neurons do Cloudflare acabam bem antes de 100 pessoas jogarem o dia inteiro. Quando todos falham, o jogador vê um aviso e a saga não perde o que já foi gravado.

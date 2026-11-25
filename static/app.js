@@ -219,11 +219,16 @@ async function enviarTurno(payload) {
     const response = await api("/api/sagas/" + sagaId + "/turnos", {
       method: "POST",
       headers: { Accept: "text/event-stream" },
+      signal: AbortSignal.timeout(70000),
       body: JSON.stringify(payload),
     });
     await lerEventos(response, atual, payload.texto);
   } catch (error) {
-    mostrarErro(atual, error.message);
+    const interrompido = error.name === "TimeoutError" || error.name === "AbortError";
+    mostrarErro(
+      atual,
+      interrompido ? "A narração demorou demais e foi interrompida. Tente de novo." : error.message,
+    );
   } finally {
     button.disabled = false;
     comecar.disabled = false;
@@ -235,6 +240,7 @@ async function lerEventos(response, atual, acao) {
   const decoder = new TextDecoder();
   let buffer = "";
   let playerNode = null;
+  let settled = false;
   while (true) {
     const chunk = await reader.read();
     if (chunk.done) break;
@@ -267,12 +273,14 @@ async function lerEventos(response, atual, acao) {
         document.querySelector("#comecar").hidden = true;
         document.querySelector("#texto").value = "";
         say("");
+        settled = true;
         await carregarSagas();
       } else if (event === "troca") {
         atual.textContent = data.texto || "";
       } else if (event === "erro" || event === "cota") {
         if (playerNode) playerNode.remove();
         mostrarErro(atual, data.mensagem || "Não foi possível narrar.");
+        settled = true;
         if (data.assinaturaUrl) {
           const link = document.createElement("a");
           link.href = data.assinaturaUrl;
@@ -282,6 +290,9 @@ async function lerEventos(response, atual, acao) {
         }
       }
     }
+  }
+  if (!settled) {
+    mostrarErro(atual, "A narração parou antes de terminar. Tente de novo.");
   }
 }
 
