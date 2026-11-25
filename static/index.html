@@ -26,6 +26,10 @@
     <p id="meta"></p>
     <button type="button" id="sair">Sair</button>
 
+    <h2>Continuar</h2>
+    <p id="sem-missoes" hidden>Nenhuma missão ainda. Crie uma ficha e comece a primeira.</p>
+    <ul id="sagas"></ul>
+
     <h2>Nova ficha</h2>
     <form id="ficha">
       <label for="nome">Nome</label>
@@ -55,14 +59,12 @@
       <button type="submit">Criar ficha</button>
     </form>
 
-    <h2>Missões</h2>
+    <h2>Nova missão</h2>
     <form id="nova-saga">
       <label for="personagem">Personagem</label>
       <select id="personagem" name="personagemId" required></select>
       <button type="submit">Nova missão</button>
     </form>
-    <ul id="sagas"></ul>
-
     <h2 id="saga-titulo">Crônica</h2>
     <div id="log"></div>
     <p id="objetivo"></p>

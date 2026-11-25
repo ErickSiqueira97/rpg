@@ -1,5 +1,6 @@
 import httpx
 import pytest
+from pathlib import Path
 
 import logging
 
@@ -219,6 +220,48 @@ async def test_nova_missao_abre_com_o_roteiro(client, app):
     assert "farol" in sent.lower()
     assert "caixa" in sent.lower()
     assert "Porto de Véspera" in sent
+
+
+@pytest.mark.asyncio
+async def test_retomada_lista_a_missao_recente_com_o_historico(tmp_path):
+    now = {"t": 1_700_000_000}
+    app = create_app(
+        Settings(database_path=str(tmp_path / "rpg.sqlite"), fake=True, moderation="off"),
+        now=lambda: now["t"],
+    )
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        created = await client.post("/api/cadastro", json={"usuario": "lia", "senha": "segredo"})
+        headers = {"Authorization": f"Bearer {created.json()['token']}", "Accept": "application/json"}
+        character = await client.post("/api/personagens", headers=headers, json=SHEET)
+        personagem = character.json()["id"]
+        antiga = await client.post("/api/sagas", headers=headers, json={"personagemId": personagem})
+        now["t"] += 30
+        recente = await client.post("/api/sagas", headers=headers, json={"personagemId": personagem})
+        now["t"] += 30
+        aberta = await client.post(
+            f"/api/sagas/{antiga.json()['id']}/turnos",
+            headers=headers,
+            json={"abertura": True},
+        )
+        assert aberta.status_code == 200
+        lista = (await client.get("/api/sagas", headers=headers)).json()
+        assert [item["titulo"] for item in lista][:1] == [antiga.json()["titulo"]]
+        assert lista[0]["id"] == antiga.json()["id"]
+        assert recente.json()["id"] in {item["id"] for item in lista}
+        detalhe = (await client.get(f"/api/sagas/{antiga.json()['id']}", headers=headers)).json()
+        assert any(item["papel"] == "narrator" and item["texto"] for item in detalhe["mensagens"])
+        de_novo = (await client.get(f"/api/sagas/{antiga.json()['id']}", headers=headers)).json()
+        assert len(de_novo["mensagens"]) == len(detalhe["mensagens"])
+    app.state.store.close()
+
+
+def test_recarregar_reabre_a_cena_sem_pedir_outra_narração():
+    source = Path("static/app.js").read_text(encoding="utf-8")
+    jogo = source.split("async function abrirJogo")[1].split("async function carregarFichas")[0]
+    assert "escolherSaga(sagas, localStorage.getItem(\"sagaId\"))" in jogo
+    assert "enviarTurno" not in jogo
+    assert "localStorage.setItem(\"sagaId\"" in source
 
 
 class _ChaveInvalida:

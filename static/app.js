@@ -70,6 +70,7 @@ document.querySelector("#sair").addEventListener("click", () => {
   token = "";
   sagaId = "";
   localStorage.removeItem("token");
+  localStorage.removeItem("sagaId");
   jogoEl.hidden = true;
   authEl.hidden = false;
   say("Você saiu.");
@@ -87,7 +88,9 @@ async function abrirJogo(jogador) {
   if (!jogador) jogador = await api("/api/eu");
   mostrarJogador(jogador);
   await carregarFichas();
-  await carregarSagas();
+  const sagas = await carregarSagas();
+  const escolhida = escolherSaga(sagas, localStorage.getItem("sagaId"));
+  if (escolhida) await abrirSaga(escolhida.id);
 }
 
 async function carregarFichas() {
@@ -102,19 +105,29 @@ async function carregarFichas() {
   });
 }
 
+function escolherSaga(sagas, salvaId) {
+  if (!sagas || !sagas.length) return null;
+  return sagas.find((saga) => saga.id === salvaId) || sagas[0];
+}
+
 async function carregarSagas() {
   const sagas = await api("/api/sagas");
   const list = document.querySelector("#sagas");
+  const vazio = document.querySelector("#sem-missoes");
   list.replaceChildren();
+  vazio.hidden = sagas.length > 0;
   sagas.forEach((saga) => {
     const item = document.createElement("li");
     const button = document.createElement("button");
     button.type = "button";
-    button.textContent = saga.titulo;
+    button.dataset.id = saga.id;
+    button.textContent = "Continuar: " + saga.titulo;
+    button.setAttribute("aria-current", saga.id === sagaId ? "true" : "false");
     button.addEventListener("click", () => abrirSaga(saga.id).catch((error) => say(error.message)));
     item.append(button);
     list.append(item);
   });
+  return sagas;
 }
 
 document.querySelector("#ficha").addEventListener("submit", async (event) => {
@@ -180,6 +193,10 @@ function paragrafo(className, text) {
 async function abrirSaga(id) {
   const saga = await api("/api/sagas/" + id);
   sagaId = saga.id;
+  localStorage.setItem("sagaId", saga.id);
+  document.querySelectorAll("#sagas button").forEach((button) => {
+    button.setAttribute("aria-current", button.dataset.id === saga.id ? "true" : "false");
+  });
   document.querySelector("#saga-titulo").textContent = saga.titulo;
   logEl.replaceChildren();
   saga.mensagens.forEach((mensagem) => {
