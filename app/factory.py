@@ -23,6 +23,7 @@ from app.moderation import Moderator
 from app.narrator import GameEvent, Narrator, new_saga_world
 from app.plans import daily_limit, day_key, days_left, effective_plan, next_reset_at
 from app.catalog import origin_by_id, public_catalog, suggest_build
+from app.engine.world import SHOP, buy, judgment, set_contract
 from app.engine.sheet import apply_asi, apply_origin_bonus, blank_sheet, class_id_for, migrate_legacy, recompute_pe
 from app.story import clean_line, validate_attributes
 
@@ -210,6 +211,49 @@ def create_app(
         if isinstance(user, JSONResponse):
             return user
         return store.list_sagas(user.id)
+
+    @app.post("/api/sagas/{saga_id}/loja")
+    async def loja(saga_id: str, request: Request):
+        user = _user(request, store)
+        if isinstance(user, JSONResponse):
+            return user
+        memory = store.saga_memory(user.id, saga_id)
+        if memory is None:
+            return _erro(404, "nao_encontrado", "Saga não encontrada.")
+        body = await _body(request)
+        result = buy(memory["mundo"], str(body.get("item") or ""), str(clock()))
+        if result["ok"]:
+            store.save_world(user.id, saga_id, memory["mundo"])
+        return {"ok": result["ok"], "linhas": result["linhas"], "mundo": memory["mundo"], "loja": list(SHOP)}
+
+    @app.post("/api/sagas/{saga_id}/contrato")
+    async def contrato(saga_id: str, request: Request):
+        user = _user(request, store)
+        if isinstance(user, JSONResponse):
+            return user
+        memory = store.saga_memory(user.id, saga_id)
+        if memory is None:
+            return _erro(404, "nao_encontrado", "Saga não encontrada.")
+        if (memory["mundo"].get("contrato") or {}).get("travado"):
+            return _erro(400, "contrato", "O contrato desta cena já está travado.")
+        stored = set_contract(memory["mundo"], await _body(request), memory.get("tipo") or "missao")
+        store.save_world(user.id, saga_id, memory["mundo"])
+        return {"contrato": stored}
+
+    @app.post("/api/sagas/{saga_id}/julgamento")
+    async def julgamento(saga_id: str, request: Request):
+        user = _user(request, store)
+        if isinstance(user, JSONResponse):
+            return user
+        memory = store.saga_memory(user.id, saga_id)
+        if memory is None:
+            return _erro(404, "nao_encontrado", "Saga não encontrada.")
+        character = store.get_character(user.id, memory["personagemId"])
+        if character is None:
+            return _erro(404, "nao_encontrado", "Ficha não encontrada.")
+        result = judgment(character, memory["mundo"], saga_id)
+        store.save_world(user.id, saga_id, memory["mundo"])
+        return result
 
     @app.post("/api/sagas/{saga_id}/arquivar")
     async def arquivar_saga(saga_id: str, request: Request):

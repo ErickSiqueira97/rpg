@@ -244,6 +244,7 @@ class Narrator:
                     stage = int(sheet.get("estagio") or 0)
                     if stage < 3 and int(sheet.get("nivel") or 1) >= (5, 11, 17)[stage]:
                         sheet["ritoPronto"] = True
+                    world["runas"] = int(world.get("runas") or 0) + (80 if memory.get("tipo") == "saga" else 50)
                     character.sheet = sheet
                 character.sheet = sheet
                 self.store.update_character(character)

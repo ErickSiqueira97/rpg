@@ -369,6 +369,20 @@ document.querySelector("#ficha").addEventListener("submit", async (event) => {
   }
 });
 
+document.querySelector("#comprar").addEventListener("click", async () => {
+  if (!sagaId) return;
+  try {
+    const data = await api("/api/sagas/" + sagaId + "/loja", {
+      method: "POST",
+      body: JSON.stringify({ item: document.querySelector("#loja-item").value }),
+    });
+    say((data.linhas || []).join(" "));
+    if (data.mundo) document.querySelector("#mundo").textContent = resumoMundo(data.mundo);
+  } catch (error) {
+    say(error.message);
+  }
+});
+
 document.querySelector("#subir").addEventListener("click", async () => {
   if (!fichaAtual) return;
   try {
@@ -452,7 +466,9 @@ function textoObjetivo(data) {
 }
 
 function resumoMundo(mundo) {
-  return "Lugar: " + (mundo.lugar || "—") + " · " + (mundo.quando || "—");
+  const stars = mundo.procurado ? " · procurado " + mundo.procurado : "";
+  const runas = mundo.runas ? " · " + mundo.runas + " runas" : "";
+  return "Lugar: " + (mundo.lugar || "—") + " · " + (mundo.quando || "—") + stars + runas;
 }
 
 function preencherPainel(mundo, resumo, ficha) {

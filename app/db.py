@@ -293,6 +293,14 @@ class Store:
             )
             self._db.commit()
 
+    def save_world(self, user_id: str, saga_id: str, world: dict) -> None:
+        with self._lock:
+            self._db.execute(
+                "UPDATE sagas SET world_json = ? WHERE id = ? AND user_id = ?",
+                (json.dumps(world, ensure_ascii=False), saga_id, user_id),
+            )
+            self._db.commit()
+
     def save_roll(self, saga_id: str, turn_key: str, payload: dict) -> None:
         with self._lock:
             self._db.execute(

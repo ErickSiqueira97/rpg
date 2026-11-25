@@ -136,6 +136,7 @@ def resolve_action(
         return _death_save(character, world, sheet, seed, mode, profile)
 
     intent = _force_risky(action, intent)
+    _maybe_crime(world, action, seed)
     if intent.get("intencao") in {"descansar_curto", "descanso_curto"} or "descanso curto" in _fold(action):
         return _short_rest(character, world, sheet, mode)
     if intent.get("intencao") in {"descansar_longo", "descanso_longo"} or "descanso longo" in _fold(action):
@@ -150,6 +151,24 @@ def resolve_action(
     if intent.get("tipo") in {"pericia", "atributo", "salvaguarda"}:
         return _check(character, world, sheet, intent, seed, mode, profile, action)
     return empty_resolution(world, sheet)
+
+
+def _maybe_crime(world: dict, action: str, seed: str) -> None:
+    from app.engine.world import add_stars, notice_crime
+
+    text = _fold(action)
+    crime = ""
+    if "homic" in text or re.search(r"\b(mato|matar|assassino)\b", text):
+        crime = "homicidio"
+    elif "assalto" in text or "roubo armado" in text:
+        crime = "roubo"
+    elif "furto" in text or "pungo" in text or "roubo a carteira" in text:
+        crime = "furto"
+    if not crime:
+        return
+    noticed = notice_crime(seed, 10, list(world.get("testemunhas") or [12]))
+    stars = add_stars(world, crime, noticed)
+    world["ultimoCrime"] = {"crime": crime, "visto": noticed, "estrelas": stars}
 
 
 def _repeat_failure(world: dict, action: str) -> bool:
@@ -293,6 +312,9 @@ def _attack(character, world, sheet, intent, seed, mode, profile) -> dict:
             rolls.append(roll_die(rng, sides))
         damage = sum(rolls) + modifier(character.attributes.get(ability, 10))
         damage = max(0, damage)
+        from app.engine.combat import apply_resistance
+
+        damage = apply_resistance(damage, "cortante", enemy)
         enemy["vida"] = max(0, int(enemy.get("vida") or 0) - damage)
         dice_label = f"{len(rolls)}d{sides}"
         if crit:
