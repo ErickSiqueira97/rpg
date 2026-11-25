@@ -23,8 +23,18 @@ from app.moderation import Moderator
 from app.narrator import GameEvent, Narrator, new_saga_world
 from app.plans import daily_limit, day_key, days_left, effective_plan, next_reset_at
 from app.catalog import origin_by_id, public_catalog, suggest_build
+from app.engine.duel import archetype_profile, fight, profile_from_character
+from app.engine.sheet import (
+    apply_asi,
+    apply_origin_bonus,
+    blank_sheet,
+    class_id_for,
+    grant_xp,
+    migrate_legacy,
+    recompute_pe,
+    training_xp_cap,
+)
 from app.engine.world import SHOP, buy, judgment, set_contract
-from app.engine.sheet import apply_asi, apply_origin_bonus, blank_sheet, class_id_for, migrate_legacy, recompute_pe
 from app.story import clean_line, validate_attributes
 
 USERNAME = re.compile(r"^[A-Za-z0-9_\u00C0-\u024f]{3,24}$")
@@ -116,6 +126,21 @@ def create_app(
             return _erro(400, "ficha", str(exc))
         character = store.create_character(user.id, name, origin, archetype, concept, attributes, clock(), sheet)
         return _public_character(character)
+
+    @app.post("/api/professor")
+    async def professor(request: Request):
+        return await _treino(request, store, clock, settings, kind="professor")
+
+    @app.post("/api/arena")
+    async def arena(request: Request):
+        return await _treino(request, store, clock, settings, kind="arena")
+
+    @app.get("/api/taxas")
+    async def taxas(request: Request):
+        user = _user(request, store)
+        if isinstance(user, JSONResponse):
+            return user
+        return store.fight_rates()
 
     @app.get("/api/catalogo")
     async def catalogo():
@@ -315,6 +340,10 @@ def create_app(
     async def index():
         return FileResponse(f"{STATIC}/index.html")
 
+    @app.get("/changelog")
+    async def changelog():
+        return FileResponse(f"{STATIC}/changelog.html")
+
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
     return app
 
@@ -333,6 +362,60 @@ def _public_user(store: Store, settings: Settings, user, moment: int) -> dict:
         "turnosLimite": limit,
         "resetEm": next_reset_at(moment, settings.day_offset_hours),
         "assinaturaUrl": settings.billing_checkout_url or None,
+    }
+
+
+async def _treino(request: Request, store: Store, clock, settings: Settings, *, kind: str):
+    user = _user(request, store)
+    if isinstance(user, JSONResponse):
+        return user
+    body = await _body(request)
+    character = store.get_character(user.id, str(body.get("personagemId") or ""))
+    if character is None:
+        return _erro(404, "nao_encontrado", "Ficha não encontrada.")
+    level = int(body.get("nivel") or (character.sheet or {}).get("nivel") or 1)
+    if kind == "arena" and level not in {5, 11, 17}:
+        return _erro(400, "arena", "A arena usa fichas no nível 5, 11 ou 17.")
+    difficulty = str(body.get("dificuldade") or "padrao")
+    if difficulty not in {"aprendiz", "padrao", "mestre"}:
+        difficulty = "padrao"
+    opponent = str(body.get("oponente") or "espelho")
+    left = profile_from_character(character, level)
+    if opponent == "espelho":
+        right = profile_from_character(character, level)
+        right["nome"] = "Espelho"
+    elif opponent in {"tanque", "dano", "controle", "conjurador", "transformador"}:
+        right = archetype_profile(opponent, level)
+    else:
+        return _erro(400, "oponente", "Oponente desconhecido.")
+    result = fight(left, right, f"{user.id}|{clock()}|{kind}|{opponent}|{level}", difficulty)
+    sheet = dict(character.sheet or {})
+    gained = 0
+    if kind == "professor" and result["vencedor"] == "jogador":
+        day = day_key(clock(), settings.day_offset_hours)
+        if sheet.get("treinoDia") != day:
+            sheet["treinoDia"] = day
+            sheet["treinoXp"] = 0
+        room = training_xp_cap(int(sheet.get("nivel") or 1)) - int(sheet.get("treinoXp") or 0)
+        gained = min(10, max(0, room))
+        if gained:
+            sheet = grant_xp(sheet, gained, character.attributes["vigor"])
+            sheet["treinoXp"] = int(sheet.get("treinoXp") or 0) + gained
+            sheet["treinoDia"] = day
+            character.sheet = recompute_pe(sheet, character.attributes)
+            store.update_character(character)
+    store.record_fight(user.id, character.sheet or sheet, opponent, result["vencedor"], kind, clock())
+    lines = list(result["linhas"])
+    if body.get("aula"):
+        lines.insert(0, "Aula: o d20 soma o bônus de ataque e compara com a CA. Abaixo da metade dos PV, quem luta defende em vez de atacar.")
+    return {
+        "vencedor": result["vencedor"],
+        "rodadas": result["rodadas"],
+        "linhas": lines[:12],
+        "xp": gained,
+        "nivel": level,
+        "dificuldade": difficulty,
+        "oponente": opponent,
     }
 
 

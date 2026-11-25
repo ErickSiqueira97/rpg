@@ -27,10 +27,40 @@
       <h1>RPG Multiverso</h1>
       <p id="meta"></p>
       <button type="button" id="sair">Sair</button>
+      <a href="/changelog">Changelog</a>
     </header>
     <h2>Seus personagens</h2>
     <div id="personagens" class="cards"></div>
     <p><button type="button" id="abrir-ficha">Novo personagem</button></p>
+    <h2>Treino e arena</h2>
+    <p>
+      <label for="treino-personagem">Personagem</label>
+      <select id="treino-personagem"></select>
+      <label for="treino-nivel">Nível</label>
+      <select id="treino-nivel">
+        <option value="5">5</option>
+        <option value="11">11</option>
+        <option value="17">17</option>
+      </select>
+      <label for="treino-dif">Dificuldade</label>
+      <select id="treino-dif">
+        <option value="aprendiz">Aprendiz</option>
+        <option value="padrao" selected>Padrão</option>
+        <option value="mestre">Mestre</option>
+      </select>
+      <label for="treino-tipo">Oponente</label>
+      <select id="treino-tipo">
+        <option value="espelho">Espelho</option>
+        <option value="tanque">Tanque</option>
+        <option value="dano">Dano</option>
+        <option value="controle">Controle</option>
+        <option value="conjurador">Conjurador</option>
+        <option value="transformador">Transformador</option>
+      </select>
+      <button type="button" id="treinar">Treinar</button>
+      <button type="button" id="arena">Arena</button>
+    </p>
+    <pre id="treino-log"></pre>
     <h2>Suas aventuras</h2>
     <div id="aventuras" class="cards"></div>
     <details id="vazias">

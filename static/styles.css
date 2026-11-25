@@ -15,7 +15,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .mesa { display: grid; gap: 1rem; }
 .coluna-log, .coluna-painel { min-width: 0; }
 #log { border: 1px solid #999; min-height: 14rem; max-height: 60vh; overflow: auto; padding: 0.6rem; }
-#log p { white-space: pre-wrap; }
+#log p, #treino-log { white-space: pre-wrap; }
 .jogador { margin: 0 0 0.4rem; }
 .narrador { margin: 0 0 0.8rem; }
 .narrando { margin: 0 0 0.8rem; font-style: italic; }

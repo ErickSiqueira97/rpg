@@ -127,6 +127,18 @@ class Store:
                 provider_completion_tokens INTEGER,
                 created_at INTEGER NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS fights (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                race TEXT NOT NULL,
+                class_id TEXT NOT NULL,
+                stage INTEGER NOT NULL,
+                level INTEGER NOT NULL,
+                opponent TEXT NOT NULL,
+                result TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                created_at INTEGER NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS rolls (
                 saga_id TEXT NOT NULL,
                 turn_key TEXT NOT NULL,
@@ -153,6 +165,22 @@ class Store:
         character_columns = {row[1] for row in self._db.execute("PRAGMA table_info(characters)")}
         if "sheet_json" not in character_columns:
             self._db.execute("ALTER TABLE characters ADD COLUMN sheet_json TEXT")
+        self._db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS fights (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                race TEXT NOT NULL,
+                class_id TEXT NOT NULL,
+                stage INTEGER NOT NULL,
+                level INTEGER NOT NULL,
+                opponent TEXT NOT NULL,
+                result TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                created_at INTEGER NOT NULL
+            )
+            """
+        )
 
     def _user_from(self, row: sqlite3.Row) -> User:
         return User(
@@ -292,6 +320,50 @@ class Store:
                 ),
             )
             self._db.commit()
+
+    def record_fight(self, user_id: str, sheet: dict, opponent: str, result: str, kind: str, now: int) -> None:
+        with self._lock:
+            self._db.execute(
+                """
+                INSERT INTO fights (id, user_id, race, class_id, stage, level, opponent, result, kind, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    str(uuid.uuid4()),
+                    user_id,
+                    sheet.get("racaId") or "",
+                    sheet.get("classeId") or "",
+                    int(sheet.get("estagio") or 0),
+                    int(sheet.get("nivel") or 1),
+                    opponent,
+                    result,
+                    kind,
+                    now,
+                ),
+            )
+            self._db.commit()
+
+    def fight_rates(self) -> list[dict]:
+        with self._lock:
+            rows = self._db.execute(
+                """
+                SELECT race, class_id, COUNT(*) AS lutas,
+                       SUM(CASE WHEN result = 'jogador' THEN 1 ELSE 0 END) AS vitorias
+                FROM fights
+                GROUP BY race, class_id
+                ORDER BY lutas DESC
+                """
+            ).fetchall()
+        return [
+            {
+                "raca": row["race"],
+                "classe": row["class_id"],
+                "lutas": row["lutas"],
+                "vitorias": row["vitorias"],
+                "taxa": round(100 * row["vitorias"] / row["lutas"]) if row["lutas"] else 0,
+            }
+            for row in rows
+        ]
 
     def save_world(self, user_id: str, saga_id: str, world: dict) -> None:
         with self._lock:

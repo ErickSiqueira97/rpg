@@ -225,6 +225,8 @@ async function carregarFichas() {
   const grade = document.querySelector("#personagens");
   if (select) select.replaceChildren();
   grade.replaceChildren();
+  const treino = document.querySelector("#treino-personagem");
+  if (treino) treino.replaceChildren();
   fichas.forEach((ficha) => {
     if (select) {
       const option = document.createElement("option");
@@ -245,7 +247,12 @@ async function carregarFichas() {
     jogar.textContent = "Nova missão";
     jogar.addEventListener("click", () => criarMissao(ficha.id).catch((error) => say(error.message)));
     card.append(titulo, arq, vida, jogar);
+    card.dataset.id = ficha.id;
     grade.append(card);
+    const option = document.createElement("option");
+    option.value = ficha.id;
+    option.textContent = ficha.nome;
+    document.querySelector("#treino-personagem").append(option);
   });
   return fichas;
 }
@@ -367,6 +374,33 @@ document.querySelector("#ficha").addEventListener("submit", async (event) => {
   } finally {
     button.disabled = false;
   }
+});
+
+async function lutar(path) {
+  const personagem = document.querySelector("#treino-personagem").value;
+  if (!personagem) {
+    say("Crie um personagem antes de treinar.");
+    return;
+  }
+  const data = await api(path, {
+    method: "POST",
+    body: JSON.stringify({
+      personagemId: personagem,
+      nivel: Number(document.querySelector("#treino-nivel").value),
+      dificuldade: document.querySelector("#treino-dif").value,
+      oponente: document.querySelector("#treino-tipo").value,
+      aula: path.endsWith("professor"),
+    }),
+  });
+  document.querySelector("#treino-log").textContent = data.vencedor + "\n" + (data.linhas || []).join("\n");
+  say(data.vencedor === "jogador" ? "Vitória." : "Derrota.");
+}
+
+document.querySelector("#treinar").addEventListener("click", () => {
+  lutar("/api/professor").catch((error) => say(error.message));
+});
+document.querySelector("#arena").addEventListener("click", () => {
+  lutar("/api/arena").catch((error) => say(error.message));
 });
 
 document.querySelector("#comprar").addEventListener("click", async () => {

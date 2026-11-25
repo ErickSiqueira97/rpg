@@ -15,3 +15,7 @@ Estas escolhas valem até o Erick mudar o desenho. Os números continuam os de `
 - Cozinheiro de Batalha é uma das 15 classes, não só uma Via.
 - Cada uma das duas chamadas (árbitro e narradora) tem o próprio teto de 45 segundos. A rolagem é gravada antes da segunda chamada; repetir o pedido com a mesma chave devolve a mesma rolagem.
 - Efeito de raça ou classe que ainda só existe como texto na ficha não altera número nenhum. Quando ganha `efeito_motor`, o motor passa a aplicá-lo e a cortar no teto.
+- O simulador usa o perfil de combate da classe (PV, CA, ataque, dado). Traço de raça que ainda é só texto não muda a taxa. A iniciativa é rolada, então o espelho fica perto de 50%. Amostra pequena (menos de 200 lutas) oscila e pode sair de 40–60% por acaso; o patch só lê combinações com pelo menos 200 lutas.
+- Com um oponente só, a tabela do Professor ataca, e defende quando os PV caem à metade ou menos. Aprendiz reduz a CA do Professor em 2 e corta o dano dele pela metade.
+- Sem testemunhas declaradas, um crime assume uma testemunha com Percepção passiva 12.
+- Concluir a missão rende 50 Runas (80 na saga), além do XP. A loja gasta essas Runas.
