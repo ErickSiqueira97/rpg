@@ -217,6 +217,55 @@ async def test_se_todos_falham_o_erro_e_amigavel_e_cabe_no_limite():
     assert "sobrecarregado" in player_failure_text(caught.value, settings)
 
 
+@pytest.mark.asyncio
+async def test_resposta_so_com_estado_e_transitória_e_cai_no_proximo(caplog):
+    caplog.set_level(logging.WARNING, logger="uvicorn.error")
+    settings = Settings(gemini_api_key="gemini-secret", turn_budget_seconds=5)
+    spec = build_spec(settings)
+    calls = []
+
+    async def complete(**kwargs):
+        calls.append((kwargs["model"], kwargs["stream"]))
+        if kwargs["model"] == DEFAULT_GEMINI_MODEL:
+            if kwargs["stream"]:
+                async def generate():
+                    yield SimpleNamespace(
+                        choices=[
+                            SimpleNamespace(
+                                delta=SimpleNamespace(content='<estado>{"beat":"nada"}</estado>'),
+                                finish_reason="stop",
+                            )
+                        ],
+                        model=kwargs["model"],
+                        usage=None,
+                    )
+
+                return generate()
+            return SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        message=SimpleNamespace(content='<estado>{"beat":"nada"}</estado>'),
+                        finish_reason="length",
+                    )
+                ],
+                model=kwargs["model"],
+            )
+        return _ok_stream(kwargs["model"]) if kwargs["stream"] else SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="Cena pronta"), finish_reason="stop")],
+            model=kwargs["model"],
+        )
+
+    async def nop(_remaining):
+        return
+
+    gateway = LiteLLMGateway(spec, settings, complete=complete, pause=nop)
+    pieces = [piece async for piece in gateway.stream("free", [{"role": "user", "content": "oi"}])]
+    assert "Cena pronta" in "".join(piece.text for piece in pieces)
+    assert any(model != DEFAULT_GEMINI_MODEL for model, _stream in calls)
+    assert "narrador sem prosa" in caplog.text
+    assert "finish_reason=stop" in caplog.text or "finish_reason=length" in caplog.text
+
+
 def test_classifica_falha_do_provedor():
     assert classify_provider_error(RuntimeError("401 API key not valid"), "Gemini") == "Gemini: chave inválida"
     assert classify_provider_error(RuntimeError("model gemini-x was not found"), "Gemini") == "Gemini: modelo não encontrado"

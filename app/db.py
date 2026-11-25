@@ -361,6 +361,9 @@ class Store:
         keys = row.keys()
         script_id = row["script_id"] if "script_id" in keys else None
         mission = mission_by_id(script_id)
+        world = json.loads(row["world_json"])
+        original = world.get("objetivoOriginal") or (mission.objective if mission else None)
+        current = world.get("objetivo") or original
         return {
             "id": row["id"],
             "titulo": row["title"],
@@ -368,8 +371,10 @@ class Store:
             "tipo": row["kind"] if "kind" in keys else "missao",
             "roteiroId": script_id,
             "nivelSugerido": row["recommended_level"] if "recommended_level" in keys else None,
-            "objetivo": mission.objective if mission else None,
-            "mundo": json.loads(row["world_json"]),
+            "objetivo": current,
+            "objetivoStatus": world.get("objetivoStatus") or "ativa",
+            "objetivoOriginal": original,
+            "mundo": world,
             "resumo": row["summary"],
             "criadaEm": row["created_at"],
             "atualizadaEm": row["updated_at"],

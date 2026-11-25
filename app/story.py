@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import re
+import unicodedata
 from dataclasses import dataclass
 
 ATTRIBUTES = ("forca", "agilidade", "vigor", "percepcao", "intelecto", "essencia")
@@ -29,10 +30,10 @@ Regras:
 prosa para o jogador
 </narrativa>
 <estado>
-{"beat":"uma frase factual do que mudou","era":"","saga":"","lugar":"","quando":"","vida":null,"energia":null,"ganhar":[],"perder":[],"sinais":{},"npcs":[{"nome":"","papel":"","disposicao":"","notas":""}],"missoes":[{"titulo":"","status":"ativa","resumo":""}]}
+{"beat":"uma frase factual do que mudou, com o nome da ficha","era":"","saga":"","lugar":"","quando":"","vida":null,"energia":null,"ganhar":[],"perder":[],"sinais":{},"objetivo":"objetivo atual, ou o novo rumo se a ação quebrou o anterior","objetivoStatus":"ativa","npcs":[{"nome":"","papel":"","disposicao":"","notas":""}],"missoes":[{"titulo":"","status":"ativa","resumo":""}]}
 </estado>
 
-Omita do JSON o que não mudou. beat é obrigatório. Se alterar npcs ou missoes, mande a lista completa (no máximo 6 NPCs e 4 missões).
+Omita do JSON o que não mudou. beat é obrigatório e único por turno. Se a ação quebrar, cumprir ou desviar o objetivo, mande objetivoStatus falhou, desviada ou concluida e o objetivo novo, sem abandonar o fim do roteiro. Se alterar npcs ou missoes, mande a lista completa (no máximo 6 NPCs e 4 missões). Marque a condição original como falhou quando ela deixar de valer.
 """
 
 
@@ -134,6 +135,9 @@ def initial_world(character: Character, mission: object | None = None) -> dict:
                 "resumo": getattr(mission, "objective", None) or "A história ainda não tem nome.",
             }
         ],
+        "objetivo": getattr(mission, "objective", None) or "Dar rumo à própria história",
+        "objetivoOriginal": getattr(mission, "objective", None) or "Dar rumo à própria história",
+        "objetivoStatus": "ativa",
     }
     if mission is not None and getattr(mission, "place", None):
         world["lugar"] = mission.place
@@ -171,6 +175,11 @@ def apply_patch(world: dict, patch: dict) -> dict:
     updated["sinais"] = dict(list(signals.items())[:12])
     if isinstance(patch.get("npcs"), list):
         updated["npcs"] = [_npc(item) for item in patch["npcs"][:6] if isinstance(item, dict) and item.get("nome")]
+    if patch.get("objetivo"):
+        updated["objetivo"] = _clip_text(patch["objetivo"], 240)
+    status = str(patch.get("objetivoStatus") or patch.get("objetivo_status") or "").strip().lower()
+    if status in {"ativa", "falhou", "desviada", "concluida", "concluída"}:
+        updated["objetivoStatus"] = "concluida" if status.startswith("conclu") else status
     if isinstance(patch.get("missoes"), list):
         quests = []
         for item in patch["missoes"][:4]:
@@ -231,6 +240,8 @@ def format_world(world: dict) -> str:
         f"Saga: {world.get('saga')}",
         f"Lugar: {world.get('lugar')}",
         f"Quando: {world.get('quando')}",
+        f"Objetivo ({world.get('objetivoStatus') or 'ativa'}): {world.get('objetivo') or 'indefinido'}",
+        f"Fim do roteiro: {world.get('objetivoOriginal') or 'o mesmo'}",
         f"Vida: {world.get('vida')}/{world.get('vidaMax')} · Energia: {world.get('energia')}/{world.get('energiaMax')}",
         "Itens: " + (", ".join(world.get("inventario") or []) or "nenhum"),
         "Sinais: " + (", ".join(signals) or "nenhum"),
@@ -251,11 +262,47 @@ def use_character_name(text: str, character_name: str, account_name: str) -> str
     return re.sub(rf"\b{re.escape(account_name)}\b", character_name, text, flags=re.IGNORECASE)
 
 
+def _significant_words(text: str) -> list[str]:
+    normalized = unicodedata.normalize("NFKD", text.lower())
+    plain = "".join(char for char in normalized if not unicodedata.combining(char))
+    return [word for word in re.findall(r"[a-z0-9]+", plain) if len(word) > 2 or word.isdigit()]
+
+
+def _similar_memory(left: str, right: str) -> bool:
+    words_left = _significant_words(left)
+    words_right = _significant_words(right)
+    if len(words_left) >= 3 and len(words_right) >= 3 and words_left[:3] == words_right[:3]:
+        return True
+    if not words_left or not words_right:
+        return False
+    shared = len(set(words_left) & set(words_right))
+    return shared / max(len(set(words_left)), len(set(words_right))) >= 0.8
+
+
+def _beat_lines(beat: str) -> list[str]:
+    parts: list[str] = []
+    for chunk in (beat or "").replace("\r", "\n").split("\n"):
+        chunk = chunk.strip().lstrip("-").strip()
+        if not chunk:
+            continue
+        bits = re.split(r"\s+-\s+", chunk)
+        if len(bits) > 1 and all(len(bit.split()) >= 4 for bit in bits):
+            parts.extend(bit.strip() for bit in bits if bit.strip())
+        else:
+            parts.append(chunk)
+    return parts
+
+
 def update_summary(current: str, beat: str, max_tokens: int) -> str:
-    line = " ".join((beat or "").split())
-    if line:
-        current = f"{current.rstrip()}\n- {line}" if current.strip() else f"- {line}"
     lines = [item for item in current.split("\n") if item.strip()]
+    for raw in _beat_lines(beat):
+        line = " ".join(raw.split())
+        if not line:
+            continue
+        formatted = f"- {line}"
+        if lines and _similar_memory(lines[-1], formatted):
+            continue
+        lines.append(formatted)
     while len(lines) > 1 and estimate_tokens("\n".join(lines)) > max_tokens:
         lines.pop(0)
     text = "\n".join(lines)

@@ -203,11 +203,21 @@ async function abrirSaga(id) {
     const mine = mensagem.papel === "player";
     logEl.append(paragrafo(mine ? "jogador" : "narrador", (mine ? "Você: " : "") + mensagem.texto));
   });
-  document.querySelector("#objetivo").textContent = saga.objetivo ? "Objetivo: " + saga.objetivo : "";
+  document.querySelector("#objetivo").textContent = textoObjetivo(saga);
   document.querySelector("#memoria").textContent = saga.resumo ? "Memória: " + saga.resumo : "Memória: (vazia)";
   document.querySelector("#mundo").textContent = resumoMundo(saga.mundo);
   document.querySelector("#comecar").hidden = saga.mensagens.length > 0;
   say("");
+}
+
+function textoObjetivo(data) {
+  if (!data || !data.objetivo) return "";
+  const status = data.objetivoStatus && data.objetivoStatus !== "ativa" ? data.objetivoStatus + " — " : "";
+  let line = "Objetivo: " + status + data.objetivo;
+  if (data.objetivoOriginal && data.objetivoOriginal !== data.objetivo) {
+    line += " (fim do roteiro: " + data.objetivoOriginal + ")";
+  }
+  return line;
 }
 
 function resumoMundo(mundo) {
@@ -281,6 +291,7 @@ async function lerEventos(response, atual, acao) {
         atual.textContent += data.texto || "";
       } else if (event === "done") {
         atual.textContent = data.narrativa || atual.textContent;
+        document.querySelector("#objetivo").textContent = textoObjetivo(data);
         document.querySelector("#memoria").textContent = "Memória: " + (data.resumo || "");
         document.querySelector("#mundo").textContent = resumoMundo(data.mundo);
         document.querySelector("#saga-titulo").textContent = data.titulo || document.querySelector("#saga-titulo").textContent;

@@ -264,6 +264,83 @@ def test_recarregar_reabre_a_cena_sem_pedir_outra_narração():
     assert "localStorage.setItem(\"sagaId\"" in source
 
 
+class _CenaDaCaixa:
+    async def stream(self, route, messages):
+        from app.llm import Piece
+
+        yield Piece(
+            text=(
+                "<narrativa>\nLia força a tampa. Maíra foge e os guardas se viram.\n</narrativa>"
+                '<estado>{"beat":"wel abriu a caixa lacrada, alarmando Maíra e atraindo a atenção dos guardas'
+                " - wel abriu a caixa, espantou Maíra e atraiu os guardas do cais\","
+                '"objetivo":"Escapar dos guardas sem ser presa","objetivoStatus":"falhou"}</estado>'
+            ),
+            model="fake",
+        )
+
+
+class _SoEstado:
+    async def stream(self, route, messages):
+        from app.llm import Piece
+
+        yield Piece(text='<estado>{"beat":"nao gravar"}</estado>', model="fake", finish_reason="stop")
+
+
+@pytest.mark.asyncio
+async def test_acao_que_quebra_o_objetivo_atualiza_e_nao_duplica_memoria(tmp_path):
+    app = create_app(
+        Settings(database_path=str(tmp_path / "rpg.sqlite"), fake=True, moderation="off"),
+        gateway=_CenaDaCaixa(),
+    )
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        created = await client.post("/api/cadastro", json={"usuario": "wel", "senha": "segredo"})
+        headers = {"Authorization": f"Bearer {created.json()['token']}", "Accept": "application/json"}
+        sheet = dict(SHEET)
+        sheet["nome"] = "Lia"
+        character = await client.post("/api/personagens", headers=headers, json=sheet)
+        saga = await client.post("/api/sagas", headers=headers, json={"personagemId": character.json()["id"]})
+        done = await client.post(
+            f"/api/sagas/{saga.json()['id']}/turnos",
+            headers=headers,
+            json={"texto": "abro a caixa"},
+        )
+        body = done.json()
+        assert done.status_code == 200
+        assert body["objetivoStatus"] == "falhou"
+        assert "guardas" in body["objetivo"]
+        assert "sem abri" in body["objetivoOriginal"]
+        assert body["resumo"].count("\n") == 0
+        assert "Lia abriu" in body["resumo"]
+        assert "wel" not in body["resumo"].lower()
+    app.state.store.close()
+
+
+@pytest.mark.asyncio
+async def test_turno_sem_prosa_nao_grava_memoria(tmp_path):
+    app = create_app(
+        Settings(database_path=str(tmp_path / "rpg.sqlite"), fake=True, moderation="off"),
+        gateway=_SoEstado(),
+    )
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        created = await client.post("/api/cadastro", json={"usuario": "wel", "senha": "segredo"})
+        headers = {"Authorization": f"Bearer {created.json()['token']}", "Accept": "application/json"}
+        character = await client.post("/api/personagens", headers=headers, json=SHEET)
+        saga = await client.post("/api/sagas", headers=headers, json={"personagemId": character.json()["id"]})
+        failed = await client.post(
+            f"/api/sagas/{saga.json()['id']}/turnos",
+            headers=headers,
+            json={"texto": "abro a caixa"},
+        )
+        assert failed.status_code == 503
+        assert "Nada foi gravado" in failed.json()["mensagem"]
+        saved = await client.get(f"/api/sagas/{saga.json()['id']}", headers=headers)
+        assert saved.json()["resumo"] == ""
+        assert saved.json()["mensagens"] == []
+    app.state.store.close()
+
+
 class _ChaveInvalida:
     async def stream(self, route, messages):
         raise NarratorUnavailable(

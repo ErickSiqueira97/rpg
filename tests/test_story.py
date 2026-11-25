@@ -23,6 +23,35 @@ def character() -> Character:
 def test_memoria_usa_o_nome_da_ficha():
     assert use_character_name("wel abre a caixa", "Lia", "wel") == "Lia abre a caixa"
     assert use_character_name("Lia espera", "Lia", "wel") == "Lia espera"
+    assert use_character_name("wel abre a caixa", "wel", "wel") == "wel abre a caixa"
+
+
+def test_memoria_nao_repete_o_mesmo_turno():
+    beat = (
+        "wel abriu a caixa lacrada, alarmando Maíra e atraindo a atenção dos guardas"
+        " - wel abriu a caixa, espantou Maíra e atraiu os guardas do cais"
+    )
+    summary = update_summary("", use_character_name(beat, "Lia", "wel"), 500)
+    assert summary.count("\n") == 0
+    assert "Lia abriu" in summary
+    again = update_summary(summary, "Lia abriu a caixa e os guardas cercaram o cais", 500)
+    assert again == summary
+
+
+def test_objetivo_falho_fica_no_mundo():
+    world = initial_world(character(), type("M", (), {"title": "Farol", "objective": "não abrir", "place": "Porto"})())
+    updated = apply_patch(
+        world,
+        {
+            "objetivo": "Escapar dos guardas com a caixa aberta",
+            "objetivoStatus": "falhou",
+            "missoes": [{"titulo": "Farol", "status": "falhou", "resumo": "A caixa foi aberta."}],
+        },
+    )
+    assert updated["objetivoStatus"] == "falhou"
+    assert updated["objetivoOriginal"] == "não abrir"
+    assert "guardas" in updated["objetivo"]
+    assert updated["missoes"][0]["status"] == "falhou"
 
 
 def test_ponto_de_compra():

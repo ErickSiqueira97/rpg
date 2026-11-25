@@ -40,6 +40,7 @@ class Piece:
     model: str = ""
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
+    finish_reason: str = ""
 
 
 class NarratorUnavailable(Exception):
@@ -69,6 +70,7 @@ def provider_label(model: str) -> str:
 OVERLOAD_MESSAGE = (
     "O servidor do Google está sobrecarregado. Tente de novo daqui a um minuto. Sua história está salva."
 )
+EMPTY_SCENE = "O narrador não devolveu uma cena. Nada foi gravado."
 
 
 def unwrap_provider_error(exc: BaseException) -> BaseException:
@@ -119,6 +121,8 @@ def is_transient(exc: BaseException) -> bool:
         "primeiro token",
         "stream vazio",
         "limite do turno",
+        "sem prosa",
+        "resposta vazia",
         "429",
         "500",
         "503",
@@ -507,12 +511,14 @@ class LiteLLMGateway:
             return
         failure = self._failure(last_exc or TimeoutError("limite do turno"), last_attempt.label, last_attempt.model)
         if last_exc is None or is_transient(last_exc):
+            empty = last_exc is not None and _empty_prose(last_exc)
+            message = EMPTY_SCENE if empty else OVERLOAD_MESSAGE
             failure = NarratorUnavailable(
-                OVERLOAD_MESSAGE,
+                message,
                 public=True,
                 provider=last_attempt.label,
                 model=last_attempt.model,
-                reason=OVERLOAD_MESSAGE,
+                reason=message,
             )
             failure.transient = True
         raise failure from last_exc
@@ -525,9 +531,10 @@ class LiteLLMGateway:
                 pieces: list[Piece] = []
                 async for piece in self._stream_attempt(attempt, messages, deadline):
                     pieces.append(piece)
-                if any(piece.text.strip() for piece in pieces):
+                if _usable_prose(pieces):
                     return pieces
-                last = TimeoutError("stream vazio")
+                _log_empty_prose(attempt, pieces)
+                last = TimeoutError("sem prosa")
             except Exception as exc:
                 last = exc
                 if not is_transient(exc):
@@ -544,9 +551,11 @@ class LiteLLMGateway:
                 raise
             raise exc if is_transient(exc) or last is None else last
         text = message_text(response)
-        if not text.strip():
-            raise TimeoutError("resposta vazia")
-        return [Piece(text=text, model=attempt.model or chunk_model(response))]
+        piece = Piece(text=text, model=attempt.model or chunk_model(response), finish_reason=chunk_finish(response))
+        if not _usable_prose([piece]):
+            _log_empty_prose(attempt, [piece])
+            raise TimeoutError("sem prosa")
+        return [piece]
 
     async def _pause(self, deadline: float) -> None:
         remaining = deadline - time.monotonic()
@@ -645,7 +654,40 @@ def _piece_from_chunk(chunk: object) -> Piece:
         model=chunk_model(chunk),
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
+        finish_reason=chunk_finish(chunk),
     )
+
+
+def chunk_finish(chunk: object) -> str:
+    choices = getattr(chunk, "choices", None)
+    if choices is None and isinstance(chunk, dict):
+        choices = chunk.get("choices")
+    if not choices:
+        return ""
+    first = choices[0]
+    reason = first.get("finish_reason") if isinstance(first, dict) else getattr(first, "finish_reason", None)
+    return str(reason or "")
+
+
+def _usable_prose(pieces: list[Piece]) -> bool:
+    from app.story import parse_narration
+
+    return bool(parse_narration("".join(piece.text for piece in pieces)).narrative.strip())
+
+
+def _log_empty_prose(attempt: Attempt, pieces: list[Piece]) -> None:
+    reason = next((piece.finish_reason for piece in reversed(pieces) if piece.finish_reason), "?")
+    log.warning(
+        "narrador sem prosa provedor=%s modelo=%s finish_reason=%s",
+        attempt.label,
+        attempt.model,
+        reason,
+    )
+
+
+def _empty_prose(exc: BaseException) -> bool:
+    text = str(exc).lower()
+    return "sem prosa" in text or "resposta vazia" in text
 
 
 async def _default_pause(remaining: float) -> None:
