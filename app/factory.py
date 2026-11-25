@@ -119,7 +119,7 @@ def create_app(
         user = _user(request, store)
         if isinstance(user, JSONResponse):
             return user
-        return [_public_character(item) for item in store.list_characters(user.id)]
+        return _character_cards(store, user.id)
 
     @app.post("/api/sagas")
     async def criar_saga(request: Request):
@@ -155,6 +155,15 @@ def create_app(
         if isinstance(user, JSONResponse):
             return user
         return store.list_sagas(user.id)
+
+    @app.post("/api/sagas/{saga_id}/arquivar")
+    async def arquivar_saga(saga_id: str, request: Request):
+        user = _user(request, store)
+        if isinstance(user, JSONResponse):
+            return user
+        if not store.archive_saga(user.id, saga_id):
+            return _erro(404, "nao_encontrado", "Saga não encontrada.")
+        return {"ok": True}
 
     @app.get("/api/sagas/{saga_id}")
     async def obter_saga(saga_id: str, request: Request):
@@ -229,6 +238,7 @@ def _public_user(store: Store, settings: Settings, user, moment: int) -> dict:
 
 
 def _public_character(character) -> dict:
+    vida_max = 16 + int(character.attributes["vigor"]) * 2
     return {
         "id": character.id,
         "nome": character.name,
@@ -236,7 +246,24 @@ def _public_character(character) -> dict:
         "arquetipo": character.archetype,
         "conceito": character.concept,
         "atributos": character.attributes,
+        "vida": vida_max,
+        "vidaMax": vida_max,
     }
+
+
+def _character_cards(store: Store, user_id: str) -> list[dict]:
+    cards = [_public_character(item) for item in store.list_characters(user_id)]
+    by_character: dict[str, dict] = {}
+    for saga in store.list_sagas(user_id):
+        if saga["vazia"] or saga["personagemId"] in by_character:
+            continue
+        by_character[saga["personagemId"]] = saga
+    for card in cards:
+        latest = by_character.get(card["id"])
+        if latest and latest.get("vida") is not None:
+            card["vida"] = latest["vida"]
+            card["vidaMax"] = latest.get("vidaMax") or card["vidaMax"]
+    return cards
 
 
 def _token(request: Request) -> str | None:

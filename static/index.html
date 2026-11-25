@@ -7,10 +7,10 @@
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
-  <h1>RPG Multiverso</h1>
   <p id="status" role="status"></p>
 
   <section id="auth">
+    <h1>RPG Multiverso</h1>
     <h2>Entrar</h2>
     <form id="auth-form">
       <label for="usuario">Usuário</label>
@@ -22,18 +22,28 @@
     </form>
   </section>
 
-  <section id="jogo" hidden>
-    <p id="meta"></p>
-    <button type="button" id="sair">Sair</button>
+  <section id="lobby" hidden>
+    <header class="topo">
+      <h1>RPG Multiverso</h1>
+      <p id="meta"></p>
+      <button type="button" id="sair">Sair</button>
+    </header>
+    <h2>Seus personagens</h2>
+    <div id="personagens" class="cards"></div>
+    <p><button type="button" id="abrir-ficha">Novo personagem</button></p>
+    <h2>Suas aventuras</h2>
+    <div id="aventuras" class="cards"></div>
+    <details id="vazias">
+      <summary>Missões vazias</summary>
+      <div id="aventuras-vazias" class="cards"></div>
+    </details>
+  </section>
 
-    <h2>Continuar</h2>
-    <p id="sem-missoes" hidden>Nenhuma missão ainda. Crie uma ficha e comece a primeira.</p>
-    <ul id="sagas"></ul>
-
-    <h2>Nova ficha</h2>
+  <dialog id="ficha-dialog" aria-labelledby="ficha-titulo">
     <form id="ficha">
+      <h2 id="ficha-titulo">Novo personagem</h2>
       <label for="nome">Nome</label>
-      <input id="nome" name="nome" required maxlength="40" autocomplete="off">
+      <input id="nome" name="nome" required maxlength="40" autocomplete="off" autofocus>
       <label for="origem">Origem</label>
       <input id="origem" name="origem" required maxlength="80" value="Porto de Véspera">
       <label for="arquetipo">Arquétipo</label>
@@ -47,35 +57,66 @@
       <label for="conceito">Conceito</label>
       <textarea id="conceito" name="conceito" maxlength="400"></textarea>
       <fieldset>
-        <legend>Atributos (base 4, distribua 12 pontos, máximo 10)</legend>
+        <legend>Atributos</legend>
         <p id="pontos">Pontos usados: 12 / 12</p>
-        <label for="forca">Força <input id="forca" data-attr type="number" min="4" max="10" value="6"></label>
-        <label for="agilidade">Agilidade <input id="agilidade" data-attr type="number" min="4" max="10" value="6"></label>
-        <label for="vigor">Vigor <input id="vigor" data-attr type="number" min="4" max="10" value="6"></label>
-        <label for="percepcao">Percepção <input id="percepcao" data-attr type="number" min="4" max="10" value="6"></label>
-        <label for="intelecto">Intelecto <input id="intelecto" data-attr type="number" min="4" max="10" value="6"></label>
-        <label for="essencia">Essência <input id="essencia" data-attr type="number" min="4" max="10" value="6"></label>
+        <div class="atributo"><span id="rotulo-forca">Força</span><button type="button" data-step="forca" data-dir="-1" aria-label="Diminuir Força">−</button><input id="forca" data-attr type="number" min="4" max="10" value="6" aria-labelledby="rotulo-forca"><button type="button" data-step="forca" data-dir="1" aria-label="Aumentar Força">+</button></div>
+        <div class="atributo"><span id="rotulo-agilidade">Agilidade</span><button type="button" data-step="agilidade" data-dir="-1" aria-label="Diminuir Agilidade">−</button><input id="agilidade" data-attr type="number" min="4" max="10" value="6" aria-labelledby="rotulo-agilidade"><button type="button" data-step="agilidade" data-dir="1" aria-label="Aumentar Agilidade">+</button></div>
+        <div class="atributo"><span id="rotulo-vigor">Vigor</span><button type="button" data-step="vigor" data-dir="-1" aria-label="Diminuir Vigor">−</button><input id="vigor" data-attr type="number" min="4" max="10" value="6" aria-labelledby="rotulo-vigor"><button type="button" data-step="vigor" data-dir="1" aria-label="Aumentar Vigor">+</button></div>
+        <div class="atributo"><span id="rotulo-percepcao">Percepção</span><button type="button" data-step="percepcao" data-dir="-1" aria-label="Diminuir Percepção">−</button><input id="percepcao" data-attr type="number" min="4" max="10" value="6" aria-labelledby="rotulo-percepcao"><button type="button" data-step="percepcao" data-dir="1" aria-label="Aumentar Percepção">+</button></div>
+        <div class="atributo"><span id="rotulo-intelecto">Intelecto</span><button type="button" data-step="intelecto" data-dir="-1" aria-label="Diminuir Intelecto">−</button><input id="intelecto" data-attr type="number" min="4" max="10" value="6" aria-labelledby="rotulo-intelecto"><button type="button" data-step="intelecto" data-dir="1" aria-label="Aumentar Intelecto">+</button></div>
+        <div class="atributo"><span id="rotulo-essencia">Essência</span><button type="button" data-step="essencia" data-dir="-1" aria-label="Diminuir Essência">−</button><input id="essencia" data-attr type="number" min="4" max="10" value="6" aria-labelledby="rotulo-essencia"><button type="button" data-step="essencia" data-dir="1" aria-label="Aumentar Essência">+</button></div>
       </fieldset>
       <button type="submit">Criar ficha</button>
+      <button type="button" id="fechar-ficha">Cancelar</button>
     </form>
+  </dialog>
 
-    <h2>Nova missão</h2>
-    <form id="nova-saga">
-      <label for="personagem">Personagem</label>
-      <select id="personagem" name="personagemId" required></select>
-      <button type="submit">Nova missão</button>
-    </form>
-    <h2 id="saga-titulo">Crônica</h2>
-    <div id="log"></div>
-    <p id="objetivo"></p>
-    <p id="memoria"></p>
-    <p id="mundo"></p>
-    <form id="acao">
-      <label for="texto">Sua ação</label>
-      <textarea id="texto" name="texto" maxlength="1500"></textarea>
-      <button type="submit">Enviar</button>
-      <button type="button" id="comecar">Começar de novo</button>
-    </form>
+  <section id="jogo" hidden>
+    <header class="topo">
+      <button type="button" id="inicio">Início</button>
+      <h1 id="saga-titulo">Crônica</h1>
+      <p id="meta-jogo"></p>
+    </header>
+    <div class="mesa">
+      <div class="coluna-log">
+        <h2 class="visually-hidden">Narração</h2>
+        <div id="log" tabindex="-1"></div>
+        <form id="acao">
+          <label for="texto">Sua ação</label>
+          <textarea id="texto" name="texto" maxlength="1500"></textarea>
+          <button type="submit">Enviar</button>
+          <button type="button" id="comecar">Começar de novo</button>
+        </form>
+      </div>
+      <div class="coluna-painel">
+        <div role="tablist" aria-label="Informações da mesa">
+          <button type="button" role="tab" id="tab-missao" aria-controls="painel-missao" aria-selected="true">Missão</button>
+          <button type="button" role="tab" id="tab-ficha" aria-controls="painel-ficha" aria-selected="false">Ficha</button>
+          <button type="button" role="tab" id="tab-inventario" aria-controls="painel-inventario" aria-selected="false">Inventário</button>
+          <button type="button" role="tab" id="tab-diario" aria-controls="painel-diario" aria-selected="false">Diário</button>
+        </div>
+        <div role="tabpanel" id="painel-missao" aria-labelledby="tab-missao">
+          <p id="objetivo"></p>
+          <p id="mundo"></p>
+          <h3>NPCs</h3>
+          <ul id="npcs"></ul>
+        </div>
+        <div role="tabpanel" id="painel-ficha" aria-labelledby="tab-ficha" hidden>
+          <p id="ficha-resumo"></p>
+          <p id="vida-rotulo"></p>
+          <div class="barra" aria-hidden="true"><span id="vida-barra"></span></div>
+          <ul id="atributos-lista"></ul>
+        </div>
+        <div role="tabpanel" id="painel-inventario" aria-labelledby="tab-inventario" hidden>
+          <ul id="inventario"></ul>
+          <p id="inventario-vazio">Nenhum item por enquanto.</p>
+        </div>
+        <div role="tabpanel" id="painel-diario" aria-labelledby="tab-diario" hidden>
+          <ul id="diario"></ul>
+          <p id="diario-vazio">O diário ainda está em branco.</p>
+        </div>
+      </div>
+    </div>
   </section>
   <script src="/static/app.js"></script>
 </body>

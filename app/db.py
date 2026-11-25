@@ -102,6 +102,7 @@ class Store:
                 kind TEXT NOT NULL DEFAULT 'missao',
                 script_id TEXT,
                 recommended_level INTEGER,
+                archived INTEGER NOT NULL DEFAULT 0,
                 created_at INTEGER NOT NULL,
                 updated_at INTEGER NOT NULL
             );
@@ -140,6 +141,8 @@ class Store:
             self._db.execute("ALTER TABLE sagas ADD COLUMN script_id TEXT")
         if "recommended_level" not in columns:
             self._db.execute("ALTER TABLE sagas ADD COLUMN recommended_level INTEGER")
+        if "archived" not in columns:
+            self._db.execute("ALTER TABLE sagas ADD COLUMN archived INTEGER NOT NULL DEFAULT 0")
 
     def _user_from(self, row: sqlite3.Row) -> User:
         return User(
@@ -302,21 +305,49 @@ class Store:
         with self._lock:
             rows = self._db.execute(
                 """
-                SELECT id, title, updated_at, character_id, kind FROM sagas
-                WHERE user_id = ? ORDER BY updated_at DESC
+                SELECT s.id, s.title, s.updated_at, s.character_id, s.kind, s.world_json, s.script_id,
+                       c.name AS character_name,
+                       (SELECT COUNT(*) FROM messages m WHERE m.saga_id = s.id) AS turns
+                FROM sagas s
+                JOIN characters c ON c.id = s.character_id
+                WHERE s.user_id = ? AND COALESCE(s.archived, 0) = 0
+                ORDER BY s.updated_at DESC
                 """,
                 (user_id,),
             ).fetchall()
-        return [
-            {
-                "id": row["id"],
-                "titulo": row["title"],
-                "atualizadaEm": row["updated_at"],
-                "personagemId": row["character_id"],
-                "tipo": row["kind"] if "kind" in row.keys() else "missao",
-            }
-            for row in rows
-        ]
+        seen: set[str] = set()
+        items = []
+        for row in rows:
+            if row["id"] in seen:
+                continue
+            seen.add(row["id"])
+            world = json.loads(row["world_json"])
+            turns = int(row["turns"] or 0)
+            items.append(
+                {
+                    "id": row["id"],
+                    "titulo": row["title"],
+                    "atualizadaEm": row["updated_at"],
+                    "personagemId": row["character_id"],
+                    "personagemNome": row["character_name"],
+                    "tipo": row["kind"] or "missao",
+                    "objetivoStatus": world.get("objetivoStatus") or "ativa",
+                    "vida": world.get("vida"),
+                    "vidaMax": world.get("vidaMax"),
+                    "turnos": turns,
+                    "vazia": turns == 0,
+                }
+            )
+        return items
+
+    def archive_saga(self, user_id: str, saga_id: str) -> bool:
+        with self._lock:
+            cursor = self._db.execute(
+                "UPDATE sagas SET archived = 1 WHERE id = ? AND user_id = ? AND COALESCE(archived, 0) = 0",
+                (saga_id, user_id),
+            )
+            self._db.commit()
+            return cursor.rowcount > 0
 
     def get_saga(self, user_id: str, saga_id: str) -> dict | None:
         with self._lock:

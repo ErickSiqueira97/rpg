@@ -1,9 +1,12 @@
 const statusEl = document.querySelector("#status");
 const authEl = document.querySelector("#auth");
+const lobbyEl = document.querySelector("#lobby");
 const jogoEl = document.querySelector("#jogo");
 const logEl = document.querySelector("#log");
+const fichaDialog = document.querySelector("#ficha-dialog");
 let token = localStorage.getItem("token") || "";
 let sagaId = "";
+let fichaAtual = null;
 
 function say(text) {
   statusEl.textContent = text || "";
@@ -43,6 +46,16 @@ document.querySelectorAll("[data-attr]").forEach((input) => {
   input.addEventListener("input", atualizarPontos);
 });
 
+document.querySelectorAll("[data-step]").forEach((button) => {
+  button.addEventListener("click", () => {
+    const input = document.getElementById(button.dataset.step);
+    const next = Number(input.value) + Number(button.dataset.dir);
+    if (next < 4 || next > 10) return;
+    input.value = String(next);
+    atualizarPontos();
+  });
+});
+
 async function entrar(path) {
   const data = await api(path, {
     method: "POST",
@@ -72,6 +85,7 @@ document.querySelector("#sair").addEventListener("click", () => {
   localStorage.removeItem("token");
   localStorage.removeItem("sagaId");
   jogoEl.hidden = true;
+  lobbyEl.hidden = true;
   authEl.hidden = false;
   say("Você saiu.");
 });
@@ -79,56 +93,147 @@ document.querySelector("#sair").addEventListener("click", () => {
 function mostrarJogador(jogador) {
   const limite = jogador.turnosLimite == null ? "sem teto" : jogador.turnosUsados + "/" + jogador.turnosLimite;
   const teste = jogador.plano === "trial" ? " · teste: " + jogador.diasDeTeste + " dia(s)" : "";
-  document.querySelector("#meta").textContent = "Plano " + jogador.plano + " · turnos hoje " + limite + teste;
+  const texto = "Plano " + jogador.plano + " · turnos hoje " + limite + teste;
+  document.querySelector("#meta").textContent = texto;
+  document.querySelector("#meta-jogo").textContent = texto;
+}
+
+function mostrarLobby() {
+  authEl.hidden = true;
+  jogoEl.hidden = true;
+  lobbyEl.hidden = false;
 }
 
 async function abrirJogo(jogador) {
   authEl.hidden = true;
-  jogoEl.hidden = false;
   if (!jogador) jogador = await api("/api/eu");
   mostrarJogador(jogador);
   await carregarFichas();
   const sagas = await carregarSagas();
   const escolhida = escolherSaga(sagas, localStorage.getItem("sagaId"));
-  if (escolhida) await abrirSaga(escolhida.id);
+  const salva = localStorage.getItem("sagaId");
+  if (salva && escolhida && escolhida.id === salva) {
+    await abrirSaga(escolhida.id);
+    return;
+  }
+  mostrarLobby();
 }
 
 async function carregarFichas() {
   const fichas = await api("/api/personagens");
-  const select = document.querySelector("#personagem");
-  select.replaceChildren();
+  const select = document.querySelector("#personagem-escolha");
+  const grade = document.querySelector("#personagens");
+  if (select) select.replaceChildren();
+  grade.replaceChildren();
   fichas.forEach((ficha) => {
-    const option = document.createElement("option");
-    option.value = ficha.id;
-    option.textContent = ficha.nome + " · " + ficha.arquetipo;
-    select.append(option);
+    if (select) {
+      const option = document.createElement("option");
+      option.value = ficha.id;
+      option.textContent = ficha.nome + " · " + ficha.arquetipo;
+      select.append(option);
+    }
+    const card = document.createElement("article");
+    card.className = "card";
+    const titulo = document.createElement("h3");
+    titulo.textContent = ficha.nome;
+    const arq = document.createElement("p");
+    arq.textContent = ficha.arquetipo;
+    const vida = document.createElement("p");
+    vida.textContent = "Vida " + ficha.vida + "/" + ficha.vidaMax;
+    const jogar = document.createElement("button");
+    jogar.type = "button";
+    jogar.textContent = "Nova missão";
+    jogar.addEventListener("click", () => criarMissao(ficha.id).catch((error) => say(error.message)));
+    card.append(titulo, arq, vida, jogar);
+    grade.append(card);
   });
+  return fichas;
 }
 
 function escolherSaga(sagas, salvaId) {
   if (!sagas || !sagas.length) return null;
-  return sagas.find((saga) => saga.id === salvaId) || sagas[0];
+  const unicas = [];
+  const vistas = new Set();
+  sagas.forEach((saga) => {
+    if (vistas.has(saga.id)) return;
+    vistas.add(saga.id);
+    unicas.push(saga);
+  });
+  return unicas.find((saga) => saga.id === salvaId) || unicas[0];
+}
+
+function cartaoAventura(saga, arquivar) {
+  const card = document.createElement("article");
+  card.className = "card";
+  const titulo = document.createElement("h3");
+  titulo.textContent = saga.titulo;
+  const quem = document.createElement("p");
+  quem.textContent = saga.personagemNome || "Personagem";
+  const quando = document.createElement("p");
+  const data = saga.atualizadaEm ? new Date(saga.atualizadaEm * 1000).toLocaleString("pt-BR") : "";
+  quando.textContent = (saga.objetivoStatus || "ativa") + (data ? " · " + data : "");
+  card.append(titulo, quem, quando);
+  if (!arquivar) {
+    const abrir = document.createElement("button");
+    abrir.type = "button";
+    abrir.dataset.id = saga.id;
+    abrir.textContent = "Continuar";
+    abrir.addEventListener("click", () => abrirSaga(saga.id).catch((error) => say(error.message)));
+    card.append(abrir);
+  } else {
+    const guardar = document.createElement("button");
+    guardar.type = "button";
+    guardar.textContent = "Arquivar";
+    guardar.addEventListener("click", () => arquivarSaga(saga.id).catch((error) => say(error.message)));
+    card.append(guardar);
+  }
+  return card;
 }
 
 async function carregarSagas() {
   const sagas = await api("/api/sagas");
-  const list = document.querySelector("#sagas");
-  const vazio = document.querySelector("#sem-missoes");
-  list.replaceChildren();
-  vazio.hidden = sagas.length > 0;
+  const ativas = document.querySelector("#aventuras");
+  const vazias = document.querySelector("#aventuras-vazias");
+  ativas.replaceChildren();
+  vazias.replaceChildren();
+  const vistas = new Set();
   sagas.forEach((saga) => {
-    const item = document.createElement("li");
-    const button = document.createElement("button");
-    button.type = "button";
-    button.dataset.id = saga.id;
-    button.textContent = "Continuar: " + saga.titulo;
-    button.setAttribute("aria-current", saga.id === sagaId ? "true" : "false");
-    button.addEventListener("click", () => abrirSaga(saga.id).catch((error) => say(error.message)));
-    item.append(button);
-    list.append(item);
+    if (vistas.has(saga.id)) return;
+    vistas.add(saga.id);
+    if (saga.vazia) vazias.append(cartaoAventura(saga, true));
+    else ativas.append(cartaoAventura(saga, false));
   });
+  document.querySelector("#vazias").hidden = vazias.childElementCount === 0;
   return sagas;
 }
+
+async function criarMissao(personagemId) {
+  const saga = await api("/api/sagas", {
+    method: "POST",
+    body: JSON.stringify({ personagemId: personagemId }),
+  });
+  await carregarSagas();
+  await abrirSaga(saga.id);
+  if (!saga.mensagens || saga.mensagens.length === 0) {
+    await enviarTurno({ abertura: true });
+  }
+}
+
+async function arquivarSaga(id) {
+  await api("/api/sagas/" + id + "/arquivar", { method: "POST", body: "{}" });
+  if (sagaId === id) {
+    sagaId = "";
+    localStorage.removeItem("sagaId");
+  }
+  await carregarSagas();
+  say("Missão arquivada.");
+}
+
+document.querySelector("#abrir-ficha").addEventListener("click", () => {
+  fichaDialog.showModal();
+  document.querySelector("#nome").focus();
+});
+document.querySelector("#fechar-ficha").addEventListener("click", () => fichaDialog.close());
 
 document.querySelector("#ficha").addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -145,6 +250,7 @@ document.querySelector("#ficha").addEventListener("submit", async (event) => {
         atributos: atributos(),
       }),
     });
+    fichaDialog.close();
     say("Ficha criada.");
     await carregarFichas();
   } catch (error) {
@@ -154,21 +260,10 @@ document.querySelector("#ficha").addEventListener("submit", async (event) => {
   }
 });
 
-document.querySelector("#nova-saga").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  try {
-    const saga = await api("/api/sagas", {
-      method: "POST",
-      body: JSON.stringify({ personagemId: document.querySelector("#personagem").value }),
-    });
-    await carregarSagas();
-    await abrirSaga(saga.id);
-    if (!saga.mensagens || saga.mensagens.length === 0) {
-      await enviarTurno({ abertura: true });
-    }
-  } catch (error) {
-    erroNoLog(error.message);
-  }
+document.querySelector("#inicio").addEventListener("click", async () => {
+  mostrarLobby();
+  await carregarSagas();
+  await carregarFichas();
 });
 
 function mostrarErro(node, message) {
@@ -194,9 +289,10 @@ async function abrirSaga(id) {
   const saga = await api("/api/sagas/" + id);
   sagaId = saga.id;
   localStorage.setItem("sagaId", saga.id);
-  document.querySelectorAll("#sagas button").forEach((button) => {
-    button.setAttribute("aria-current", button.dataset.id === saga.id ? "true" : "false");
-  });
+  fichaAtual = (await api("/api/personagens")).find((item) => item.id === saga.personagemId) || null;
+  authEl.hidden = true;
+  lobbyEl.hidden = true;
+  jogoEl.hidden = false;
   document.querySelector("#saga-titulo").textContent = saga.titulo;
   logEl.replaceChildren();
   saga.mensagens.forEach((mensagem) => {
@@ -204,10 +300,11 @@ async function abrirSaga(id) {
     logEl.append(paragrafo(mine ? "jogador" : "narrador", (mine ? "Você: " : "") + mensagem.texto));
   });
   document.querySelector("#objetivo").textContent = textoObjetivo(saga);
-  document.querySelector("#memoria").textContent = saga.resumo ? "Memória: " + saga.resumo : "Memória: (vazia)";
   document.querySelector("#mundo").textContent = resumoMundo(saga.mundo);
+  preencherPainel(saga.mundo, saga.resumo, fichaAtual);
   document.querySelector("#comecar").hidden = saga.mensagens.length > 0;
   say("");
+  logEl.focus();
 }
 
 function textoObjetivo(data) {
@@ -221,14 +318,64 @@ function textoObjetivo(data) {
 }
 
 function resumoMundo(mundo) {
-  const npcs = (mundo.npcs || []).map((npc) => npc.nome).join(", ") || "nenhum";
-  return (
-    "Lugar: " + mundo.lugar +
-    " · " + mundo.quando +
-    " · vida " + mundo.vida + "/" + mundo.vidaMax +
-    " · NPCs: " + npcs
-  );
+  return "Lugar: " + (mundo.lugar || "—") + " · " + (mundo.quando || "—");
 }
+
+function preencherPainel(mundo, resumo, ficha) {
+  const npcs = document.querySelector("#npcs");
+  npcs.replaceChildren();
+  (mundo.npcs || []).forEach((npc) => {
+    const item = document.createElement("li");
+    item.textContent = npc.nome + (npc.notas ? " — " + npc.notas : "");
+    npcs.append(item);
+  });
+  if (!npcs.childElementCount) {
+    const item = document.createElement("li");
+    item.textContent = "Nenhum NPC conhecido.";
+    npcs.append(item);
+  }
+  const itens = document.querySelector("#inventario");
+  itens.replaceChildren();
+  (mundo.inventario || []).forEach((nome) => {
+    const item = document.createElement("li");
+    item.textContent = nome;
+    itens.append(item);
+  });
+  document.querySelector("#inventario-vazio").hidden = itens.childElementCount > 0;
+  const diario = document.querySelector("#diario");
+  diario.replaceChildren();
+  String(resumo || "").split("\n").map((linha) => linha.replace(/^\s*-\s*/, "").trim()).filter(Boolean).forEach((linha) => {
+    const item = document.createElement("li");
+    item.textContent = linha;
+    diario.append(item);
+  });
+  document.querySelector("#diario-vazio").hidden = diario.childElementCount > 0;
+  if (!ficha) return;
+  document.querySelector("#ficha-resumo").textContent = ficha.nome + " · " + ficha.arquetipo;
+  const vida = mundo.vida != null ? mundo.vida : ficha.vida;
+  const maximo = mundo.vidaMax || ficha.vidaMax || vida;
+  document.querySelector("#vida-rotulo").textContent = "Vida " + vida + "/" + maximo;
+  document.querySelector("#vida-barra").style.width = Math.max(0, Math.min(100, (vida / maximo) * 100)) + "%";
+  const lista = document.querySelector("#atributos-lista");
+  lista.replaceChildren();
+  Object.entries(ficha.atributos || {}).forEach(([nome, valor]) => {
+    const item = document.createElement("li");
+    item.textContent = nome + " " + valor;
+    lista.append(item);
+  });
+}
+
+function ativarAba(id) {
+  document.querySelectorAll("[role=tab]").forEach((tab) => {
+    const selected = tab.id === id;
+    tab.setAttribute("aria-selected", selected ? "true" : "false");
+    document.getElementById(tab.getAttribute("aria-controls")).hidden = !selected;
+  });
+}
+
+document.querySelectorAll("[role=tab]").forEach((tab) => {
+  tab.addEventListener("click", () => ativarAba(tab.id));
+});
 
 async function enviarTurno(payload) {
   if (!sagaId) {
@@ -253,10 +400,7 @@ async function enviarTurno(payload) {
     await lerEventos(response, atual, payload.texto);
   } catch (error) {
     const interrompido = error.name === "TimeoutError" || error.name === "AbortError";
-    mostrarErro(
-      atual,
-      interrompido ? "A narração demorou demais e foi interrompida. Tente de novo." : error.message,
-    );
+    mostrarErro(atual, interrompido ? "A narração demorou demais e foi interrompida. Tente de novo." : error.message);
   } finally {
     button.disabled = false;
     comecar.disabled = false;
@@ -292,12 +436,14 @@ async function lerEventos(response, atual, acao) {
       } else if (event === "done") {
         atual.textContent = data.narrativa || atual.textContent;
         document.querySelector("#objetivo").textContent = textoObjetivo(data);
-        document.querySelector("#memoria").textContent = "Memória: " + (data.resumo || "");
         document.querySelector("#mundo").textContent = resumoMundo(data.mundo);
         document.querySelector("#saga-titulo").textContent = data.titulo || document.querySelector("#saga-titulo").textContent;
+        preencherPainel(data.mundo, data.resumo, fichaAtual);
         if (data.cota) {
           const limite = data.cota.limite == null ? "sem teto" : data.cota.usados + "/" + data.cota.limite;
-          document.querySelector("#meta").textContent = "Plano " + data.cota.plano + " · turnos hoje " + limite;
+          const texto = "Plano " + data.cota.plano + " · turnos hoje " + limite;
+          document.querySelector("#meta").textContent = texto;
+          document.querySelector("#meta-jogo").textContent = texto;
         }
         document.querySelector("#comecar").hidden = true;
         document.querySelector("#texto").value = "";
@@ -310,19 +456,20 @@ async function lerEventos(response, atual, acao) {
         if (playerNode) playerNode.remove();
         mostrarErro(atual, data.mensagem || "Não foi possível narrar.");
         settled = true;
-        if (data.assinaturaUrl) {
-          const link = document.createElement("a");
-          link.href = data.assinaturaUrl;
-          link.textContent = " Assinar";
-          statusEl.append(document.createTextNode(" "));
-          statusEl.append(link);
-        }
       }
     }
   }
-  if (!settled) {
-    mostrarErro(atual, "A narração parou antes de terminar. Tente de novo.");
+  if (!settled) mostrarErro(atual, "A narração parou antes de terminar. Tente de novo.");
+}
+
+function textoObjetivo(data) {
+  if (!data || !data.objetivo) return "";
+  const status = data.objetivoStatus && data.objetivoStatus !== "ativa" ? data.objetivoStatus + " — " : "";
+  let line = "Objetivo: " + status + data.objetivo;
+  if (data.objetivoOriginal && data.objetivoOriginal !== data.objetivo) {
+    line += " (fim do roteiro: " + data.objetivoOriginal + ")";
   }
+  return line;
 }
 
 document.querySelector("#acao").addEventListener("submit", (event) => {
@@ -333,6 +480,13 @@ document.querySelector("#acao").addEventListener("submit", (event) => {
     return;
   }
   enviarTurno({ texto });
+});
+
+document.querySelector("#texto").addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" || event.shiftKey) return;
+  event.preventDefault();
+  if (event.isComposing || event.keyCode === 229) return;
+  document.querySelector("#acao").requestSubmit();
 });
 
 document.querySelector("#comecar").addEventListener("click", () => {

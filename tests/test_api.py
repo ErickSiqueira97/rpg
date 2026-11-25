@@ -256,6 +256,37 @@ async def test_retomada_lista_a_missao_recente_com_o_historico(tmp_path):
     app.state.store.close()
 
 
+@pytest.mark.asyncio
+async def test_arquiva_aventura_vazia_e_mantem_a_que_tem_turno(tmp_path):
+    app = create_app(Settings(database_path=str(tmp_path / "rpg.sqlite"), fake=True, moderation="off"))
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        created = await client.post("/api/cadastro", json={"usuario": "lia", "senha": "segredo"})
+        headers = {"Authorization": f"Bearer {created.json()['token']}", "Accept": "application/json"}
+        character = await client.post("/api/personagens", headers=headers, json=SHEET)
+        personagem = character.json()["id"]
+        assert character.json()["vida"] > 0
+        vazia = await client.post("/api/sagas", headers=headers, json={"personagemId": personagem})
+        jogada = await client.post("/api/sagas", headers=headers, json={"personagemId": personagem})
+        aberta = await client.post(
+            f"/api/sagas/{jogada.json()['id']}/turnos",
+            headers=headers,
+            json={"abertura": True},
+        )
+        assert aberta.status_code == 200
+        lista = (await client.get("/api/sagas", headers=headers)).json()
+        ids = {item["id"] for item in lista}
+        assert vazia.json()["id"] in ids and jogada.json()["id"] in ids
+        assert next(item for item in lista if item["id"] == vazia.json()["id"])["vazia"] is True
+        assert next(item for item in lista if item["id"] == jogada.json()["id"])["personagemNome"] == "Lia"
+        archived = await client.post(f"/api/sagas/{vazia.json()['id']}/arquivar", headers=headers)
+        assert archived.status_code == 200
+        restante = (await client.get("/api/sagas", headers=headers)).json()
+        assert [item["id"] for item in restante] == [jogada.json()["id"]]
+        assert "caixa" in (restante[0]["titulo"] + aberta.json().get("narrativa", "")).lower() or restante[0]["titulo"]
+    app.state.store.close()
+
+
 def test_recarregar_reabre_a_cena_sem_pedir_outra_narração():
     source = Path("static/app.js").read_text(encoding="utf-8")
     jogo = source.split("async function abrirJogo")[1].split("async function carregarFichas")[0]

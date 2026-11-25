@@ -1,14 +1,33 @@
-body { font: 16px/1.45 system-ui, sans-serif; margin: 1rem auto; max-width: 40rem; padding: 0 1rem; }
+body { font: 16px/1.45 system-ui, sans-serif; margin: 0 auto; max-width: 64rem; padding: 1rem; }
+h1, h2, h3 { line-height: 1.2; }
 label, button, input, textarea, select { font: inherit; }
-label { display: block; margin: 0.5rem 0; }
-input, textarea, select, button { padding: 0.4rem; }
+label { display: block; margin: 0.6rem 0 0.2rem; }
+input, textarea, select, button { padding: 0.5rem; min-height: 2.75rem; }
 textarea { width: 100%; min-height: 5rem; }
-button { margin-right: 0.4rem; }
-#log { border: 1px solid #999; min-height: 8rem; padding: 0.5rem; white-space: pre-wrap; }
-#sagas { padding-left: 1.2rem; }
-#sagas button[aria-current="true"] { font-weight: 700; }
-#status { min-height: 1.2em; }
+button { margin: 0.2rem 0.4rem 0.2rem 0; }
+button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 3px solid #0b57d0; outline-offset: 2px; }
+.topo { display: flex; flex-wrap: wrap; gap: 0.6rem 1rem; align-items: center; justify-content: space-between; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr)); gap: 0.75rem; }
+.card { border: 1px solid #bbb; padding: 0.75rem; background: #fff; }
+.card h3 { margin: 0 0 0.3rem; }
+.card p { margin: 0.2rem 0; }
+.mesa { display: grid; gap: 1rem; }
+.coluna-log, .coluna-painel { min-width: 0; }
+#log { border: 1px solid #999; min-height: 14rem; max-height: 60vh; overflow: auto; padding: 0.6rem; }
 .jogador { margin: 0 0 0.4rem; }
 .narrador { margin: 0 0 0.8rem; }
-.narrando { margin: 0 0 0.8rem; color: #333; font-style: italic; }
+.narrando { margin: 0 0 0.8rem; font-style: italic; }
 .erro-chat { margin: 0.6rem 0; padding: 0.6rem; background: #fde8e8; color: #7f1d1d; border: 1px solid #b91c1c; font-weight: 600; }
+.atributo { display: flex; gap: 0.4rem; align-items: center; margin: 0.3rem 0; }
+.atributo span { min-width: 7rem; }
+.atributo input { width: 4rem; }
+[role="tablist"] { display: flex; flex-wrap: wrap; gap: 0.25rem; }
+[role="tab"][aria-selected="true"] { font-weight: 700; border-color: #111; }
+.barra { height: 0.6rem; background: #ddd; }
+#vida-barra { display: block; height: 100%; background: #9b2c2c; width: 100%; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+dialog { border: 1px solid #999; max-width: 32rem; width: calc(100% - 2rem); }
+dialog::backdrop { background: rgb(0 0 0 / 40%); }
+@media (min-width: 52rem) {
+  .mesa { grid-template-columns: minmax(0, 1.6fr) minmax(16rem, 0.8fr); align-items: start; }
+}
