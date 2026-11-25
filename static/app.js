@@ -212,6 +212,7 @@ async function enviarTurno(payload) {
   const comecar = document.querySelector("#comecar");
   button.disabled = true;
   comecar.disabled = true;
+  logEl.querySelectorAll(".erro-chat").forEach((node) => node.remove());
   const atual = paragrafo("narrando", "Narrando…");
   logEl.append(atual);
   say("Narrando…");

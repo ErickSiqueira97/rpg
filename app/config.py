@@ -52,7 +52,9 @@ def _int(name: str, value: str, default: int) -> int:
 # Em nov/2026 a Google ainda serve gemini-2.5-flash-lite, mas só para contas
 # que já o usavam. Projeto novo usa o Flash-Lite atual.
 DEFAULT_GEMINI_MODEL = "gemini/gemini-3.5-flash-lite"
-DEFAULT_GEMINI_FALLBACK = "gemini/gemini-3.6-flash"
+# Mesma chave. 3.6-flash ficou lento demais neste uso; 3.1-flash-lite e 3.8-flash
+# estão no plano grátis da API em novembro de 2026.
+DEFAULT_GEMINI_FALLBACK = "gemini/gemini-3.1-flash-lite,gemini/gemini-3.8-flash"
 
 
 def expose_provider_errors(settings: Settings) -> bool:
@@ -71,6 +73,7 @@ class Settings:
     gemini_model: str = DEFAULT_GEMINI_MODEL
     gemini_fallback_model: str = DEFAULT_GEMINI_FALLBACK
     first_token_seconds: float = 15
+    turn_budget_seconds: float = 45
     openrouter_api_key: str = ""
     openrouter_model: str = "google/gemma-4-26b-a4b-it:free"
     cloudflare_api_key: str = ""
@@ -136,6 +139,7 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
         gemini_fallback_model=get("LLM_GEMINI_FALLBACK_MODEL", DEFAULT_GEMINI_FALLBACK).strip()
         or DEFAULT_GEMINI_FALLBACK,
         first_token_seconds=float(get("LLM_FIRST_TOKEN_SECONDS", "15") or "15"),
+        turn_budget_seconds=float(get("LLM_TURN_BUDGET_SECONDS", "45") or "45"),
         openrouter_api_key=one_secret("OPENROUTER_API_KEY", get("OPENROUTER_API_KEY")),
         openrouter_model=get("LLM_OPENROUTER_MODEL", "google/gemma-4-26b-a4b-it:free").strip()
         or "google/gemma-4-26b-a4b-it:free",

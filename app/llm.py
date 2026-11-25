@@ -58,6 +58,7 @@ class NarratorUnavailable(Exception):
         self.provider = provider
         self.model = model
         self.reason = reason
+        self.transient = False
 
 
 def provider_label(model: str) -> str:
@@ -65,37 +66,101 @@ def provider_label(model: str) -> str:
     return PROVIDER_LABELS.get(key, key or "Narrador")
 
 
+OVERLOAD_MESSAGE = (
+    "O servidor do Google está sobrecarregado. Tente de novo daqui a um minuto. Sua história está salva."
+)
+
+
+def unwrap_provider_error(exc: BaseException) -> BaseException:
+    current = exc
+    seen: set[int] = set()
+    while id(current) not in seen:
+        seen.add(id(current))
+        inner = getattr(current, "original_exception", None)
+        if isinstance(inner, BaseException):
+            current = inner
+            continue
+        cause = current.__cause__
+        if isinstance(cause, BaseException):
+            current = cause
+            continue
+        break
+    return current
+
+
+def _error_text(exc: BaseException) -> str:
+    root = unwrap_provider_error(exc)
+    return f"{type(exc).__name__} {exc} {type(root).__name__} {root}".lower()
+
+
+def is_transient(exc: BaseException) -> bool:
+    root = unwrap_provider_error(exc)
+    status = getattr(root, "status_code", None)
+    if status is None:
+        status = getattr(exc, "status_code", None)
+    text = _error_text(exc)
+    if status in (401, 403) or any(
+        token in text for token in ("api key", "api_key", "invalid key", "unauthenticated", "permission denied")
+    ):
+        return False
+    if status in (408, 409, 429, 500, 502, 503, 504):
+        return True
+    needles = (
+        "midstreamfallback",
+        "serviceunavailable",
+        "unavailable",
+        "ratelimit",
+        "internalservererror",
+        "apiconnectionerror",
+        "timeout",
+        "timed out",
+        "high demand",
+        "try again later",
+        "primeiro token",
+        "stream vazio",
+        "limite do turno",
+        "429",
+        "500",
+        "503",
+    )
+    return any(token in text for token in needles)
+
+
 def classify_provider_error(exc: BaseException, label: str) -> str:
     """Motivo curto para o jogador. Não inclui chave nem corpo do pedido."""
-    text = f"{type(exc).__name__} {exc}".lower()
+    root = unwrap_provider_error(exc)
+    text = _error_text(exc)
     if any(token in text for token in ("api key", "api_key", "invalid key", "unauthenticated", "permission denied", "401", "403")):
         return f"{label}: chave inválida"
     if any(token in text for token in ("not found", "404", "model_not_found", "unknown model", "is not supported", "invalid model")):
         return f"{label}: modelo não encontrado"
-    if any(token in text for token in ("429", "rate limit", "ratelimit", "quota", "resource exhausted", "too many requests")):
-        return f"{label}: limite atingido"
-    if any(token in text for token in ("timeout", "timed out", "primeiro token", "stream vazio")):
-        return f"{label}: tempo esgotado"
-    return f"{label}: {type(exc).__name__}"
+    if is_transient(exc):
+        return OVERLOAD_MESSAGE
+    return f"{label}: {type(root).__name__}"
 
 
 def player_failure_text(exc: NarratorUnavailable, settings: Settings) -> str:
     if exc.public:
         return exc.message
+    cause = exc.__cause__ or exc
+    if getattr(exc, "transient", False) or is_transient(cause):
+        return OVERLOAD_MESSAGE
     base = "Os narradores não responderam agora. Sua história está salva. Tente de novo em instantes."
-    if expose_provider_errors(settings) and exc.reason:
+    if expose_provider_errors(settings) and exc.reason and exc.reason != OVERLOAD_MESSAGE:
         return f"{base} {exc.reason}"
     return base
 
 
 def log_narrator_failure(exc: NarratorUnavailable, secrets: tuple[str, ...]) -> None:
     cause = exc.__cause__ or exc
+    root = unwrap_provider_error(cause)
     detail = redact(str(cause), secrets)
     log.error(
-        "narrador falhou provedor=%s modelo=%s tipo=%s detalhe=%s",
+        "narrador falhou provedor=%s modelo=%s tipo=%s causa=%s detalhe=%s",
         exc.provider or "?",
         exc.model or "?",
         type(cause).__name__,
+        type(root).__name__,
         detail,
     )
 
@@ -145,6 +210,20 @@ def normalize_gemini(model: str) -> str:
     return model
 
 
+def gemini_model_chain(settings: Settings) -> list[str]:
+    """Modelo principal e reservas, todos com a mesma chave."""
+    if not settings.gemini_api_key:
+        return []
+    models = [normalize_gemini(settings.gemini_model)]
+    for part in settings.gemini_fallback_model.split(","):
+        if not part.strip():
+            continue
+        model = normalize_gemini(part)
+        if model not in models:
+            models.append(model)
+    return models
+
+
 def normalize_openrouter(model: str) -> str:
     bare = model.strip()
     if bare.startswith("openrouter/"):
@@ -170,28 +249,17 @@ def normalize_cloudflare(model: str) -> str:
 
 def build_spec(settings: Settings) -> RouterSpec:
     deployments: list[tuple[str, dict]] = []
-    if settings.gemini_api_key:
-        model = normalize_gemini(settings.gemini_model)
+    for index, model in enumerate(gemini_model_chain(settings)):
+        logical = "narrador-gemini" if index == 0 else f"narrador-gemini-reserva-{index}"
         deployments.append(
             (
                 "gemini",
                 {
-                    "model_name": "narrador-gemini",
+                    "model_name": logical,
                     "litellm_params": {"model": model, "api_key": settings.gemini_api_key},
                 },
             )
         )
-        fallback = normalize_gemini(settings.gemini_fallback_model)
-        if fallback != model:
-            deployments.append(
-                (
-                    "gemini",
-                    {
-                        "model_name": "narrador-gemini-reserva",
-                        "litellm_params": {"model": fallback, "api_key": settings.gemini_api_key},
-                    },
-                )
-            )
     if settings.openrouter_api_key:
         model = normalize_openrouter(settings.openrouter_model)
         deployments.append(
@@ -370,12 +438,8 @@ def attempts_for(settings: Settings, route: str) -> list[Attempt]:
             )
         ]
     attempts: list[Attempt] = []
-    if settings.gemini_api_key:
-        primary = normalize_gemini(settings.gemini_model)
-        attempts.append(Attempt("Gemini", primary, settings.gemini_api_key))
-        fallback = normalize_gemini(settings.gemini_fallback_model)
-        if fallback != primary:
-            attempts.append(Attempt("Gemini", fallback, settings.gemini_api_key))
+    for model in gemini_model_chain(settings):
+        attempts.append(Attempt("Gemini", model, settings.gemini_api_key))
     if settings.openrouter_api_key:
         attempts.append(
             Attempt("OpenRouter", normalize_openrouter(settings.openrouter_model), settings.openrouter_api_key)
@@ -399,10 +463,11 @@ def message_text(response: object) -> str:
 
 
 class LiteLLMGateway:
-    def __init__(self, spec: RouterSpec, settings: Settings, complete=None):
+    def __init__(self, spec: RouterSpec, settings: Settings, complete=None, pause=None):
         self.spec = spec
         self.settings = settings
         self.complete = complete or _litellm_complete
+        self.pause = pause or _default_pause
 
     async def stream(self, route: str, messages: list[dict[str, str]]):
         attempts = attempts_for(self.settings, route)
@@ -417,60 +482,91 @@ class LiteLLMGateway:
                 "Defina a chave do Gemini, do OpenRouter ou do Cloudflare.",
                 public=True,
             )
-        last: NarratorUnavailable | None = None
-        sent = False
+        deadline = time.monotonic() + self.settings.turn_budget_seconds
+        last_exc: BaseException | None = None
+        last_attempt = attempts[0]
         for attempt in attempts:
+            if time.monotonic() >= deadline:
+                break
             log.info("Narrando rota=%s provedor=%s modelo=%s", route, attempt.label, attempt.model)
             try:
-                async for piece in self._one(attempt, messages):
-                    if piece.text:
-                        sent = True
-                    yield piece
-                return
+                pieces = await self._one(attempt, messages, deadline)
             except Exception as exc:
-                last = self._failure(exc, attempt.label, attempt.model)
-                if sent:
-                    raise last from exc
+                last_exc = exc
+                last_attempt = attempt
+                if not is_transient(exc):
+                    raise self._failure(exc, attempt.label, attempt.model) from exc
                 log.warning(
-                    "narrador segue para o próximo modelo=%s motivo=%s",
+                    "narrador segue para o próximo modelo=%s tipo=%s",
                     attempt.model,
-                    last.reason,
+                    type(unwrap_provider_error(exc)).__name__,
                 )
-        assert last is not None
-        raise last
-
-    async def _one(self, attempt: Attempt, messages: list[dict[str, str]]):
-        produced = False
-        try:
-            async for piece in self._stream_attempt(attempt, messages):
-                if piece.text:
-                    produced = True
+                continue
+            for piece in pieces:
                 yield piece
-            if produced:
-                return
-            raise TimeoutError("stream vazio")
-        except Exception as exc:
-            if produced:
-                raise
-            log.warning(
-                "stream sem texto modelo=%s tipo=%s; tentando sem streaming",
-                attempt.model,
-                type(exc).__name__,
+            return
+        failure = self._failure(last_exc or TimeoutError("limite do turno"), last_attempt.label, last_attempt.model)
+        if last_exc is None or is_transient(last_exc):
+            failure = NarratorUnavailable(
+                OVERLOAD_MESSAGE,
+                public=True,
+                provider=last_attempt.label,
+                model=last_attempt.model,
+                reason=OVERLOAD_MESSAGE,
             )
-        response = await self._call(attempt, messages, stream=False)
+            failure.transient = True
+        raise failure from last_exc
+
+    async def _one(self, attempt: Attempt, messages: list[dict[str, str]], deadline: float) -> list[Piece]:
+        last: BaseException | None = None
+        for stream_try in (1, 2):
+            self._ensure_budget(deadline)
+            try:
+                pieces: list[Piece] = []
+                async for piece in self._stream_attempt(attempt, messages, deadline):
+                    pieces.append(piece)
+                if any(piece.text.strip() for piece in pieces):
+                    return pieces
+                last = TimeoutError("stream vazio")
+            except Exception as exc:
+                last = exc
+                if not is_transient(exc):
+                    raise
+            if stream_try == 1:
+                log.warning("narrador tenta de novo modelo=%s depois de uma pausa curta", attempt.model)
+                await self._pause(deadline)
+        self._ensure_budget(deadline)
+        log.warning("stream sem texto modelo=%s; tentando sem streaming", attempt.model)
+        try:
+            response = await self._call(attempt, messages, stream=False, deadline=deadline)
+        except Exception as exc:
+            if last is not None and not is_transient(exc):
+                raise
+            raise exc if is_transient(exc) or last is None else last
         text = message_text(response)
         if not text.strip():
             raise TimeoutError("resposta vazia")
-        yield Piece(text=text, model=attempt.model or chunk_model(response))
+        return [Piece(text=text, model=attempt.model or chunk_model(response))]
 
-    async def _stream_attempt(self, attempt: Attempt, messages: list[dict[str, str]]):
-        response = await self._call(attempt, messages, stream=True)
+    async def _pause(self, deadline: float) -> None:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return
+        await self.pause(min(remaining, 3.0))
+
+    def _ensure_budget(self, deadline: float) -> None:
+        if time.monotonic() >= deadline:
+            raise TimeoutError("limite do turno")
+
+    async def _stream_attempt(self, attempt: Attempt, messages: list[dict[str, str]], deadline: float):
+        response = await self._call(attempt, messages, stream=True, deadline=deadline)
         iterator = response.__aiter__()
-        deadline = time.monotonic() + self.settings.first_token_seconds
+        first_wait = min(self.settings.first_token_seconds, max(0.05, deadline - time.monotonic()))
+        deadline_first = time.monotonic() + first_wait
         got_text = False
         try:
             while not got_text:
-                remaining = deadline - time.monotonic()
+                remaining = deadline_first - time.monotonic()
                 if remaining <= 0:
                     raise TimeoutError("primeiro token")
                 try:
@@ -483,7 +579,7 @@ class LiteLLMGateway:
                     yield piece
                 elif piece.prompt_tokens is not None:
                     yield piece
-            end = time.monotonic() + self.settings.llm_timeout
+            end = min(time.monotonic() + self.settings.llm_timeout, deadline)
             while True:
                 remaining = end - time.monotonic()
                 if remaining <= 0:
@@ -510,8 +606,11 @@ class LiteLLMGateway:
         *,
         stream: bool,
         max_tokens: int | None = None,
+        deadline: float | None = None,
     ):
         timeout = self.settings.first_token_seconds if stream else self.settings.llm_timeout
+        if deadline is not None:
+            timeout = min(timeout, max(0.05, deadline - time.monotonic()))
         kwargs: dict = {
             "model": attempt.model,
             "messages": messages,
@@ -547,6 +646,12 @@ def _piece_from_chunk(chunk: object) -> Piece:
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
     )
+
+
+async def _default_pause(remaining: float) -> None:
+    import random
+
+    await asyncio.sleep(min(remaining, random.uniform(1.5, 3.0)))
 
 
 async def _litellm_complete(**kwargs):

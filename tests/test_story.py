@@ -1,4 +1,5 @@
 from app.story import (
+    use_character_name,
     SYSTEM_PROMPT,
     Character,
     NarrativeExtractor,
@@ -17,6 +18,11 @@ ATTRS = {name: 6 for name in ("forca", "agilidade", "vigor", "percepcao", "intel
 
 def character() -> Character:
     return Character("c1", "u1", "Lia", "Porto de Véspera", "Errante", "procura o farol", dict(ATTRS))
+
+
+def test_memoria_usa_o_nome_da_ficha():
+    assert use_character_name("wel abre a caixa", "Lia", "wel") == "Lia abre a caixa"
+    assert use_character_name("Lia espera", "Lia", "wel") == "Lia espera"
 
 
 def test_ponto_de_compra():

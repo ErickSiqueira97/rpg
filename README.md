@@ -160,7 +160,7 @@ python -m app.check_llm
 
 O comando manda um «ok» para cada modelo configurado (o Flash-Lite, a reserva da mesma chave do Gemini, e os outros provedores que tiverem chave) e imprime a latência ou o erro. A chave não aparece.
 
-Se o streaming do Gemini ficar mudo, o turno espera no máximo `LLM_FIRST_TOKEN_SECONDS` (15) pelo primeiro token, tenta o mesmo modelo sem streaming e, se ainda falhar, usa `LLM_GEMINI_FALLBACK_MODEL` com a mesma chave. O padrão da reserva é `gemini/gemini-3.6-flash`, que a tabela de preços de novembro de 2026 marca como grátis. O modelo principal continua `gemini/gemini-3.5-flash-lite`, também grátis. Os dois ids existem na API; o Lite às vezes não entrega token no streaming até estourar o tempo, por isso o pensamento vai em `minimal` e há essa segunda tentativa.
+Se o Gemini devolver 503, estourar o tempo ou cair no meio do stream, o turno tenta o mesmo modelo de novo (pausa de 1,5 a 3 segundos), depois sem streaming, e então cada id de `LLM_GEMINI_FALLBACK_MODEL` com a mesma chave. O padrão dessa lista, em novembro de 2026, é `gemini/gemini-3.1-flash-lite,gemini/gemini-3.8-flash` (os dois no plano grátis). `gemini-3.6-flash` ficou de fora porque a resposta passava de 30 segundos. O turno inteiro para por volta de `LLM_TURN_BUDGET_SECONDS` (45). O modelo principal continua `gemini/gemini-3.5-flash-lite`. `python -m app.check_llm` testa o principal e cada reserva.
 
 ## Limitações
 

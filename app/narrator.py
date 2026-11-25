@@ -23,6 +23,7 @@ from app.story import (
     initial_world,
     parse_narration,
     update_summary,
+    use_character_name,
 )
 
 
@@ -158,10 +159,12 @@ class Narrator:
                 narrative = parsed.narrative if output_refusal is None else (
                     "A cena se fecha antes de mostrar isso. Tente outra ação."
                 )
+                narrative = use_character_name(narrative, character.name, user.username)
                 if output_refusal is not None:
                     yield GameEvent("troca", {"texto": narrative})
                 world = apply_patch(memory["mundo"], parsed.patch if output_refusal is None else {})
                 beat = parsed.beat if output_refusal is None else "A cena foi interrompida."
+                beat = use_character_name(beat, character.name, user.username)
                 summary = update_summary(memory["resumo"], beat, self.settings.summary_max_tokens)
                 title = memory["titulo"]
                 saga_name = world.get("saga")

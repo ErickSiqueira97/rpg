@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+import time
 
 import logging
 
@@ -6,7 +7,15 @@ import pytest
 
 from app.config import DEFAULT_GEMINI_FALLBACK, DEFAULT_GEMINI_MODEL, ConfigError, Settings, load_settings
 from app.check_llm import run as check_run
-from app.llm import LiteLLMGateway, NarratorUnavailable, build_spec, classify_provider_error, log_startup
+from app.llm import (
+    OVERLOAD_MESSAGE,
+    LiteLLMGateway,
+    NarratorUnavailable,
+    build_spec,
+    classify_provider_error,
+    log_startup,
+    player_failure_text,
+)
 
 
 def test_pool_tem_uma_conta_por_provedor_e_fallback_nessa_ordem():
@@ -24,18 +33,27 @@ def test_pool_tem_uma_conta_por_provedor_e_fallback_nessa_ordem():
     assert spec.free_entry == "narrador-gratis"
     assert spec.paid_entry == "narrador-pago"
     assert spec.fallbacks == [
-        {"narrador-gratis": ["narrador-gemini-reserva", "narrador-openrouter", "narrador-cloudflare"]}
+        {
+            "narrador-gratis": [
+                "narrador-gemini-reserva-1",
+                "narrador-gemini-reserva-2",
+                "narrador-openrouter",
+                "narrador-cloudflare",
+            ]
+        }
     ]
     names = [item["model_name"] for item in spec.model_list]
     assert names.count("narrador-gratis") == 1
     assert len(names) == len(set(names))
     assert spec.model_list[0]["litellm_params"]["model"] == DEFAULT_GEMINI_MODEL
-    assert spec.model_list[1]["litellm_params"]["model"] == DEFAULT_GEMINI_FALLBACK
+    assert spec.model_list[1]["litellm_params"]["model"] == "gemini/gemini-3.1-flash-lite"
+    assert spec.model_list[2]["litellm_params"]["model"] == "gemini/gemini-3.8-flash"
     assert spec.model_list[1]["litellm_params"]["api_key"] == spec.model_list[0]["litellm_params"]["api_key"]
-    assert spec.model_list[2]["litellm_params"]["model"].endswith(":free")
-    assert spec.model_list[2]["litellm_params"]["model"] != "openrouter/free"
-    assert "accounts/conta-cf/ai/v1" in spec.model_list[3]["litellm_params"]["api_base"]
-    assert spec.model_list[3]["litellm_params"]["model"] == "cloudflare/@cf/meta/llama-3.1-8b-instruct-fast"
+    assert spec.model_list[2]["litellm_params"]["api_key"] == "gemini-key"
+    assert spec.model_list[3]["litellm_params"]["model"].endswith(":free")
+    assert spec.model_list[3]["litellm_params"]["model"] != "openrouter/free"
+    assert "accounts/conta-cf/ai/v1" in spec.model_list[4]["litellm_params"]["api_base"]
+    assert spec.model_list[4]["litellm_params"]["model"] == "cloudflare/@cf/meta/llama-3.1-8b-instruct-fast"
     assert spec.model_list[-1]["litellm_params"]["model"] == "groq/openai/gpt-oss-20b"
     assert "narrador-pago" not in spec.fallbacks[0]["narrador-gratis"]
 
@@ -81,15 +99,19 @@ async def test_stream_mudo_cai_para_sem_streaming_e_depois_para_o_outro_modelo()
             return _reply("Olá", kwargs["model"])
         raise AssertionError("o reserva não precisava desligar o streaming")
 
-    gateway = LiteLLMGateway(spec, settings, complete=complete)
+    async def nop(_remaining):
+        return
+
+    gateway = LiteLLMGateway(spec, settings, complete=complete, pause=nop)
     messages = [{"role": "user", "content": "memória e ficha"}]
     pieces = [piece async for piece in gateway.stream("free", messages)]
     assert pieces[0].text == "Olá"
     assert calls[0][0] == DEFAULT_GEMINI_MODEL and calls[0][1] is True
     assert calls[0][2] == "minimal"
     assert calls[0][3] == settings.first_token_seconds
-    assert calls[1] == (DEFAULT_GEMINI_MODEL, False, "minimal", settings.llm_timeout)
-    assert calls[2][0] == DEFAULT_GEMINI_FALLBACK and calls[2][1] is True
+    assert calls[1][0] == DEFAULT_GEMINI_MODEL and calls[1][1] is True
+    assert calls[2] == (DEFAULT_GEMINI_MODEL, False, "minimal", settings.llm_timeout)
+    assert calls[3][0] == "gemini/gemini-3.1-flash-lite" and calls[3][1] is True
 
 
 @pytest.mark.asyncio
@@ -100,7 +122,10 @@ async def test_erro_do_provedor_nao_vaza_a_chave():
     async def complete(**kwargs):
         raise RuntimeError("upstream gemini-secret failed")
 
-    gateway = LiteLLMGateway(spec, settings, complete=complete)
+    async def nop(_remaining):
+        return
+
+    gateway = LiteLLMGateway(spec, settings, complete=complete, pause=nop)
     with pytest.raises(NarratorUnavailable) as caught:
         async for _piece in gateway.stream("free", [{"role": "user", "content": "oi"}]):
             pass
@@ -109,11 +134,94 @@ async def test_erro_do_provedor_nao_vaza_a_chave():
     assert caught.value.reason == "Gemini: RuntimeError"
 
 
+class _Unavailable(Exception):
+    def __init__(self):
+        super().__init__("UNAVAILABLE 503 high demand")
+        self.status_code = 503
+
+
+class MidStreamFallbackError(Exception):
+    def __init__(self):
+        inner = _Unavailable()
+        super().__init__(f"litellm.MidStreamFallbackError: {inner}")
+        self.original_exception = inner
+        self.status_code = 503
+
+
+def _ok_stream(model):
+    async def generate():
+        yield SimpleNamespace(
+            choices=[SimpleNamespace(delta=SimpleNamespace(content="Cena pronta"))],
+            model=model,
+            usage=None,
+        )
+
+    return generate()
+
+
+@pytest.mark.asyncio
+async def test_503_no_meio_do_stream_cai_para_o_proximo_modelo():
+    settings = Settings(gemini_api_key="gemini-secret", turn_budget_seconds=5)
+    spec = build_spec(settings)
+    calls = []
+
+    async def complete(**kwargs):
+        calls.append((kwargs["model"], kwargs["stream"]))
+        if kwargs["model"] == DEFAULT_GEMINI_MODEL and kwargs["stream"]:
+            async def generate():
+                yield SimpleNamespace(
+                    choices=[SimpleNamespace(delta=SimpleNamespace(content="ped"))],
+                    model=kwargs["model"],
+                    usage=None,
+                )
+                raise MidStreamFallbackError()
+
+            return generate()
+        if kwargs["model"] == DEFAULT_GEMINI_MODEL:
+            raise MidStreamFallbackError()
+        if kwargs["stream"]:
+            return _ok_stream(kwargs["model"])
+        raise AssertionError(kwargs["model"])
+
+    async def nop(_remaining):
+        return
+
+    gateway = LiteLLMGateway(spec, settings, complete=complete, pause=nop)
+    pieces = [piece async for piece in gateway.stream("free", [{"role": "user", "content": "oi"}])]
+    assert "".join(piece.text for piece in pieces) == "Cena pronta"
+    assert "ped" not in "".join(piece.text for piece in pieces)
+    assert any(model == "gemini/gemini-3.1-flash-lite" for model, _stream in calls)
+    assert calls[0] == (DEFAULT_GEMINI_MODEL, True)
+
+
+@pytest.mark.asyncio
+async def test_se_todos_falham_o_erro_e_amigavel_e_cabe_no_limite():
+    settings = Settings(gemini_api_key="gemini-secret", turn_budget_seconds=0.4, first_token_seconds=0.05, llm_timeout=0.05)
+    spec = build_spec(settings)
+
+    async def complete(**kwargs):
+        raise MidStreamFallbackError()
+
+    async def nop(_remaining):
+        return
+
+    gateway = LiteLLMGateway(spec, settings, complete=complete, pause=nop)
+    started = time.perf_counter()
+    with pytest.raises(NarratorUnavailable) as caught:
+        async for _piece in gateway.stream("free", [{"role": "user", "content": "oi"}]):
+            pass
+    elapsed = time.perf_counter() - started
+    assert elapsed < 2
+    assert player_failure_text(caught.value, settings) == OVERLOAD_MESSAGE
+    assert "MidStream" not in player_failure_text(caught.value, settings)
+    assert "sobrecarregado" in player_failure_text(caught.value, settings)
+
+
 def test_classifica_falha_do_provedor():
     assert classify_provider_error(RuntimeError("401 API key not valid"), "Gemini") == "Gemini: chave inválida"
     assert classify_provider_error(RuntimeError("model gemini-x was not found"), "Gemini") == "Gemini: modelo não encontrado"
-    assert classify_provider_error(RuntimeError("429 rate limit exceeded"), "Gemini") == "Gemini: limite atingido"
-    assert classify_provider_error(TimeoutError("Read timed out"), "Gemini") == "Gemini: tempo esgotado"
+    assert classify_provider_error(RuntimeError("429 rate limit exceeded"), "Gemini") == OVERLOAD_MESSAGE
+    assert classify_provider_error(TimeoutError("Read timed out"), "Gemini") == OVERLOAD_MESSAGE
 
 
 @pytest.mark.asyncio
@@ -127,7 +235,8 @@ async def test_check_llm_nao_imprime_chave(capsys, monkeypatch):
     output = capsys.readouterr().out
     assert code == 0
     assert DEFAULT_GEMINI_MODEL in output
-    assert DEFAULT_GEMINI_FALLBACK in output
+    assert "gemini-3.1-flash-lite" in output
+    assert "gemini-3.8-flash" in output
     assert "gemini-secret" not in output
 
 
