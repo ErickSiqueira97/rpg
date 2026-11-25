@@ -69,7 +69,7 @@ VIAS = [
 ]
 
 SUBCLASSES = {
-    "espadachim": ["Lâmina Campeã", "Cadências Elementais", "Três Lâminas"],
+    "espadachim": ["Lâmina Campeã", "Cadências Elementais", "Múltiplas Lâminas"],
     "furioso": ["Caminho do Furioso", "Fera Interior", "Corpo-Arma"],
     "punho_de_aura": ["Palma Aberta", "Rajada de Aura", "Ascensão"],
     "sombra": ["Lâmina Silenciosa", "Mestre dos Selos", "Andarilho da Bruma"],
@@ -109,8 +109,8 @@ _BUILDS = [
     {"id": "fera_selada", "nome": "Herdeiro da Fera Selada", "raca": "receptaculo", "variante": "", "classe": "sombra", "subclasse": "Mestre dos Selos", "origemId": "orfao_de_guerra", "via": "folego_interior", "traco": "forjado_na_luta", "conceito": "Órfão de um clã de selos. Uma fera dorme no corpo e os sinais de mão chamam cópias e vento.", "aliases": ["naruto", "uzumaki", "ninja", "fera selada", "selos de mao", "orfao ninja"]},
     {"id": "guerreiro_despertar", "nome": "Guerreiro do Despertar", "raca": "estelar", "variante": "", "classe": "punho_de_aura", "subclasse": "Ascensão", "origemId": "discipulo_de_eremita", "via": "aura", "traco": "forjado_na_luta", "conceito": "Guerreiro vindo de outro mundo. Treina com um eremita e desperta o corpo em estágios, cada limite rompido mais alto que o anterior.", "aliases": ["goku", "kakaroto", "kakarotto", "saiyajin", "sayajin", "saiyan", "ki fighter", "lutador de ki", "artista marcial de ki", "dragon ball", "artista marcial", "guerreiro do despertar"]},
     {"id": "punho_elastico", "nome": "Punho Elástico", "raca": "humano", "variante": "", "classe": "punho_de_aura", "subclasse": "Palma Aberta", "origemId": "marujo_errante", "via": "aura", "traco": "dom_singular", "conceito": "Marujo cujo corpo estica o golpe até três metros. O mesmo dom o impede de nadar.", "aliases": ["luffy", "punho elastico", "corpo de borracha", "corpo elastico"]},
-    {"id": "lamina_tripla", "nome": "Lâmina Tripla", "raca": "humano", "variante": "", "classe": "espadachim", "subclasse": "Três Lâminas", "origemId": "mercenario", "via": "", "traco": "forjado_na_luta", "conceito": "Mercenário que luta com três lâminas ao mesmo tempo e transforma o estilo num ritmo de golpes.", "aliases": ["zoro", "roronoa", "tres laminas", "tres espadas", "swordsman", "espadachim de tres laminas"]},
-    {"id": "lamina_dupla", "nome": "Lâmina Dupla", "raca": "humano", "variante": "", "classe": "espadachim", "subclasse": "Três Lâminas", "origemId": "mercenario", "via": "", "traco": "forjado_na_luta", "conceito": "Espadachim de duas mãos. Uma lâmina em cada punho, no estilo leve de quem luta sozinho no claro.", "aliases": ["kirito", "kirigaya", "duas espadas", "duas laminas", "dual wield", "espadachim de duas espadas", "espadachim"]},
+    {"id": "lamina_tripla", "nome": "Lâmina Tripla", "raca": "humano", "variante": "", "classe": "espadachim", "subclasse": "Múltiplas Lâminas", "origemId": "mercenario", "via": "", "traco": "forjado_na_luta", "conceito": "Mercenário que luta com três lâminas ao mesmo tempo e transforma o estilo num ritmo de golpes.", "aliases": ["zoro", "roronoa", "tres laminas", "tres espadas", "swordsman", "espadachim de tres laminas"]},
+    {"id": "lamina_dupla", "nome": "Lâmina Dupla", "raca": "humano", "variante": "", "classe": "espadachim", "subclasse": "Múltiplas Lâminas", "origemId": "mercenario", "via": "", "traco": "forjado_na_luta", "conceito": "Espadachim que empunha uma lâmina em cada mão. Dois cortes leves no mesmo tempo, no ritmo de quem luta sozinho.", "aliases": ["kirito", "kirigaya", "duas espadas", "duas laminas", "dual wield", "espadachim de duas espadas", "espadachim"], "viaSugerida": "folego_interior"},
     {"id": "portador_colosso", "nome": "Portador do Colosso", "raca": "sangue_de_colosso", "variante": "", "classe": "cacador", "subclasse": "Batedor da Muralha", "origemId": "cadete_da_muralha", "via": "sangue", "traco": "forjado_na_luta", "conceito": "Cadete da muralha que herda um corpo capaz de crescer até a forma colossal.", "aliases": ["eren", "yeager", "jaeger", "portador do colosso", "titã", "tita", "attack on titan"]},
     {"id": "antidom", "nome": "Antidom", "raca": "humano", "variante": "", "classe": "espadachim", "subclasse": "Lâmina Campeã", "origemId": "orfao_de_guerra", "via": "", "traco": "nulo", "conceito": "Órfão cuja lâmina anula técnicas. Não usa Vias: o aço é o bastante.", "aliases": ["asta", "antimagia", "antidom", "anula magia", "nulo"]},
     {"id": "grimorista_vento", "nome": "Grimorista do Vento", "raca": "longevo", "variante": "", "classe": "grimorista", "subclasse": "Afinidade Elemental", "origemId": "orfao_de_guerra", "via": "grimorio", "traco": "olhos_raros", "conceito": "Leitor de um grimório de vento. A página escolhe o elemento e o livro guarda o que a memória não segura.", "aliases": ["yuno", "grimorista de vento", "mago de vento", "sorcerer", "feiticeiro", "mago"]},
@@ -212,6 +212,75 @@ def techniques_for(via_id: str) -> list[dict]:
     return items
 
 
+# Atributo do ataque (recebe 15 e o +2) e o segundo (recebe 14 e o +1).
+# A origem muda só quando a antiga não inclui o atributo do ataque.
+_FOCUS = {
+    "ascendente_solitario": ("percepcao", "agilidade", None),
+    "ra_sombra": ("agilidade", "percepcao", None),
+    "rei_faminto": ("essencia", "intelecto", None),
+    "punho_exorcista": ("agilidade", "vigor", "candidato_do_exame"),
+    "olhar_infinito": ("essencia", "intelecto", None),
+    "fera_selada": ("agilidade", "vigor", None),
+    "guerreiro_despertar": ("agilidade", "vigor", "candidato_do_exame"),
+    "punho_elastico": ("agilidade", "forca", None),
+    "lamina_tripla": ("agilidade", "forca", None),
+    "lamina_dupla": ("agilidade", "forca", None),
+    "portador_colosso": ("agilidade", "forca", None),
+    "antidom": ("forca", "vigor", "mercenario"),
+    "grimorista_vento": ("intelecto", "percepcao", "erudito"),
+    "alquimista_aco": ("intelecto", "vigor", "erudito"),
+    "lamina_mare": ("agilidade", "vigor", None),
+    "herdeiro_dom": ("agilidade", "vigor", "candidato_do_exame"),
+    "menino_floresta": ("agilidade", "percepcao", None),
+    "herdeiro_raio": ("agilidade", "vigor", None),
+    "coracao_serra": ("forca", "vigor", "mercenario"),
+    "espadachim_negro": ("forca", "vigor", None),
+    "guardiao_almas": ("forca", "vigor", None),
+    "cacador_mutante": ("agilidade", "percepcao", None),
+    "senhor_noite": ("essencia", "intelecto", None),
+    "vigia_cacada": ("forca", "essencia", "criado_no_campo"),
+    "pele_lua": ("forca", "vigor", None),
+    "estrela_caida": ("forca", "vigor", None),
+    "vigilante_noite": ("agilidade", "intelecto", None),
+    "saltador_teias": ("agilidade", "percepcao", "candidato_do_exame"),
+    "couraca_fogo": ("intelecto", "agilidade", None),
+    "gourmet": ("percepcao", "vigor", None),
+    "invocador_feras": ("percepcao", "vigor", None),
+}
+
+_SCORE_ORDER = ("vigor", "forca", "agilidade", "percepcao", "intelecto", "essencia")
+_ARRAY = (15, 14, 13, 12, 10, 8)
+SUBCLASS_RENAME = {"Três Lâminas": "Múltiplas Lâminas", "Tres Laminas": "Múltiplas Lâminas"}
+
+
+def _scores(primary: str, secondary: str) -> dict[str, int]:
+    rest = [name for name in _SCORE_ORDER if name not in {primary, secondary}]
+    return {name: score for name, score in zip((primary, secondary, *rest), _ARRAY)}
+
+
+def _prepare_builds() -> None:
+    for build in _BUILDS:
+        primary, secondary, origin = _FOCUS[build["id"]]
+        if origin:
+            build["origemId"] = origin
+        build["subclasse"] = SUBCLASS_RENAME.get(build["subclasse"], build["subclasse"])
+        build["atributos"] = _scores(primary, secondary)
+        build["bonusOrigem"] = {primary: 2, secondary: 1}
+        build["ataque"] = primary
+
+
+_prepare_builds()
+
+
+def rename_subclass(sheet: dict) -> bool:
+    current = sheet.get("subclasse")
+    renamed = SUBCLASS_RENAME.get(current)
+    if not renamed:
+        return False
+    sheet["subclasse"] = renamed
+    return True
+
+
 def _normalize_request(text: str) -> str:
     folded = _fold(text)
     folded = re.sub(r"^(quero ser|quero jogar)\s+(o|a|os|as|um|uma)\s+", "", folded)
@@ -237,7 +306,10 @@ def _public_from(build: dict, *, fonte: str, motivo: str) -> dict:
         "subclasse": build["subclasse"],
         "origemId": build["origemId"],
         "via": build.get("via") or "",
+        "viaSugerida": build.get("viaSugerida") or "",
         "traco": build.get("traco") or "",
+        "atributos": dict(build.get("atributos") or {}),
+        "bonusOrigem": dict(build.get("bonusOrigem") or {}),
         "build": build["nome"],
         "buildId": build["id"],
         "fonte": fonte,

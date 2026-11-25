@@ -153,19 +153,30 @@ def migrate_legacy(attributes: dict[str, int], archetype: str) -> tuple[dict[str
     return updated, sheet
 
 
-def apply_origin_bonus(base: dict[str, int], bonus: dict[str, int]) -> dict[str, int]:
+def apply_origin_bonus(base: dict[str, int], bonus: dict[str, int], allowed: list[str] | None = None) -> dict[str, int]:
     cleaned = validate_point_buy(base)
     if not isinstance(bonus, dict) or not bonus:
         raise ValueError("A origem soma +2 e +1, ou +1 em três atributos.")
-    values = {name: int(bonus[name]) for name in bonus}
-    if any(name not in ATTRIBUTES for name in values) or any(amount not in {1, 2} for amount in values.values()):
-        raise ValueError("O bônus da origem é +2 e +1, ou +1 em três atributos.")
+    values = {}
+    for name, amount in bonus.items():
+        if name not in ATTRIBUTES:
+            raise ValueError("O bônus da origem é +2 e +1, ou +1 em três atributos.")
+        if isinstance(amount, bool) or not isinstance(amount, int) or amount not in {1, 2}:
+            raise ValueError("O bônus da origem é +2 e +1, ou +1 em três atributos.")
+        values[name] = amount
+    if len(values) != len(set(values)):
+        raise ValueError("O bônus da origem cai em atributos diferentes.")
     amounts = sorted(values.values(), reverse=True)
     if amounts not in ([2, 1], [1, 1, 1]):
-        raise ValueError("O bônus da origem é +2 e +1, ou +1 em três atributos.")
+        raise ValueError("A origem dá exatamente um +2 e um +1, ou +1 em três atributos.")
+    if allowed is not None and any(name not in allowed for name in values):
+        raise ValueError("O bônus da origem só cai nos três atributos dela.")
     final = dict(cleaned)
     for name, amount in values.items():
-        final[name] = min(20, final[name] + amount)
+        total = final[name] + amount
+        if total > 20:
+            raise ValueError(f"{name} passa de 20.")
+        final[name] = total
     return final
 
 

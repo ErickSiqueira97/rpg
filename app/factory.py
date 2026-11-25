@@ -431,10 +431,9 @@ def _build_sheet(body: dict, origin: str, archetype: str) -> tuple[dict, dict, s
         raise ValueError("Atributos inválidos.") from exc
     if all(8 <= value <= 15 for value in base.values()):
         bonus = body.get("bonusOrigem") or {}
-        if origin_row and bonus and any(name not in origin_row["atributos"] for name in bonus):
-            raise ValueError("O bônus da origem só cai nos três atributos dela.")
+        allowed = origin_row["atributos"] if origin_row else None
         if bonus:
-            attributes = apply_origin_bonus(base, bonus)
+            attributes = apply_origin_bonus(base, bonus, allowed)
         elif origin_row:
             first, second = origin_row["atributos"][0], origin_row["atributos"][1]
             attributes = apply_origin_bonus(base, {first: 2, second: 1})

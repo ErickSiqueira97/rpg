@@ -23,7 +23,7 @@ Nenhum nome de obra aparece no jogo. A coluna da esquerda é só o arquétipo co
 
 | Arquétipos cobertos | Blocos originais |
 | --- | --- |
-| Piratas de corpo único, espadachins, cozinheiro de bordo | Dom Singular, Espadachim (Três Lâminas), Cozinheiro de Batalha, Marujo Errante |
+| Piratas de corpo único, espadachins, cozinheiro de bordo | Dom Singular, Espadachim (Múltiplas Lâminas), Cozinheiro de Batalha, Marujo Errante |
 | Alien forte, vigilante com gadgets, herói ágil | Estelar, Sentinela (Escudo), Sombra, Artífice, Feral Aracnídeo |
 | Artista marcial de aura e transformações | Punho de Aura (Ascensão), Via Aura, Estelar |
 | Selos de mão, fera selada, órfão | Sombra, Via Fôlego Interior, Receptáculo, Órfão de Guerra |
@@ -442,9 +442,9 @@ Rito: Voltar do Julgamento após a morte ou destruir um necromante.
 - Recurso: Usos do SRD: Retomar Fôlego (2 no nível 1) e Surto de Ação. PE marciais só se escolher uma Via
 - Mantido: Estilo de Luta, Retomar Fôlego, Maestria de Arma, Surto de Ação, Mente Tática, Ataque Extra, Indomável
 - Renomeado ou modificado: Só nomes traduzidos
-- Original: Subclasses Cadências Elementais e Três Lâminas
+- Original: Subclasses Cadências Elementais e Múltiplas Lâminas
 - Marcos: 1: Estilo de Luta, Retomar Fôlego, Maestria · 2: Surto de Ação · 3: subclasse · 5: Ataque Extra · 9: Indomável · 11: dois Ataques Extras · 17: Surto duas vezes · 20: três Ataques Extras
-- Subclasses: Lâmina Campeã (SRD Campeão: crítico em 19–20 no 3) · Cadências Elementais (original: gasta 1 Retomar Fôlego para uma forma de maré, chama, trovão ou vento, +1d8 do tipo e um efeito) · Três Lâminas (original: duelo e armas Leves com Maestria Golpe Extra)
+- Subclasses: Lâmina Campeã (SRD Campeão: crítico em 19–20 no 3) · Cadências Elementais (original: gasta 1 Retomar Fôlego para uma forma de maré, chama, trovão ou vento, +1d8 do tipo e um efeito) · Múltiplas Lâminas (original: duelo e armas Leves com Maestria Golpe Extra)
 
 ### Furioso
 
@@ -668,7 +668,7 @@ A primeira coluna é a essência do pedido, nunca um nome protegido salvo na fic
 | Órfão com uma fera selada | Herdeiro da Fera Selada | Receptáculo · Sombra (Mestre dos Selos) · Órfão de Guerra · Fôlego | PV 10 · CA 14 · Ataque +5 (1d6 + 3) · Troca 1 vez por dia | 3: cópias ilusórias · Forjado na Luta dá bônus após falhas |
 | Artista marcial que desperta em estágios | Guerreiro do Despertar | Estelar · Punho de Aura (Ascensão) · Discípulo de Eremita · Aura | PV 9 · CA 15 · Desarmado +5 (1d6 + 3) | 3: Despertar I · 11: Despertar II · 17: Despertar III |
 | Lutador de corpo elástico | Punho Elástico | Humano · Punho de Aura (Palma Aberta) · Marujo Errante · Dom Corpo Elástico | PV 9 · CA 15 · Desarmado +5 com alcance 3 m | 11: Despertar II · não nada (custo do Dom) |
-| Espadachim de três lâminas | Lâmina Tripla | Humano · Espadachim (Três Lâminas) · Mercenário | PV 12 · CA 16 · Ataque +5 (1d6 + 3) + golpe extra | 5: Ataque Extra · 11: dois extras |
+| Espadachim de três lâminas | Lâmina Tripla | Humano · Espadachim (Múltiplas Lâminas) · Mercenário | PV 12 · CA 16 · Ataque +5 (1d6 + 3) + golpe extra | 5: Ataque Extra · 11: dois extras |
 | Humano que vira gigante | Portador do Colosso | Sangue-de-Colosso · Caçador (Batedor da Muralha) · Cadete da Muralha · Sangue | PV 12 · CA 14 · Lâminas +5 (1d6 + 3) | 3: Forma Parcial e Arnês · 5: Ataque Extra · 11: Forma Colossal |
 | Guerreiro que anula técnicas | Antidom | Humano · Espadachim (Lâmina Campeã) · Órfão de Guerra · Traço Nulo | PV 12 · CA 16 · Montante +5 (2d6 + 3) | Nulo: Vantagem contra técnicas, sem usar Vias |
 | Grimorista de vento | Grimorista do Vento | Longevo · Grimorista (Afinidade: trovão ou vento) · Órfão de Guerra | PV 8 · CA 12 · CD 13 | 3: Afinidade · 5: círculo 3 |

@@ -11,6 +11,7 @@ Estas escolhas valem até o Erick mudar o desenho. Os números continuam os de `
 - Descanso longo recupera todos os PV e todos os dados de vida, como a frase adaptada da matriz, e só em saga num lugar marcado seguro.
 - Na saga que não é Brutal, três falhas abrem o Julgamento uma vez e ainda não marcam morte permanente. No Brutal, sem o contrato ligar o Julgamento, a morte é imediata. Na missão, três falhas são derrota: volta com 1 PV e o objetivo falha.
 - O Hóspede, se um dia assumir a ficha, fica uma cena. Não vira NPC para sempre enquanto essa pergunta estiver aberta.
+- A origem dá um +2 e um +1 em dois atributos diferentes, ou +1 em três. O +2 da ficha sugerida cai no atributo do ataque, que nasce em 15. Se a origem antiga não tinha esse atributo, a sugestão troca a origem. A subclasse das duas ou três lâminas se chama Múltiplas Lâminas.
 - O fluxo «quero ser» não grava nem mostra nome protegido. A tela não cita a obra. Um apelido conhecido casa na tabela e não passa pelo narrador, para um modelo errado não trocar o build. Pedido sem apelido vai ao narrador com os ids do catálogo; se o JSON vier inválido, tenta de novo uma vez e o log guarda o motivo. O último recurso é um caçador explorador, não um espadachim genérico.
 - Cozinheiro de Batalha é uma das 15 classes, não só uma Via.
 - Cada uma das duas chamadas (árbitro e narradora) tem o próprio teto de 45 segundos. A rolagem é gravada antes da segunda chamada; repetir o pedido com a mesma chave devolve a mesma rolagem.

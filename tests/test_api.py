@@ -463,3 +463,26 @@ async def test_rolagem_gravada_nao_muda_no_reenvio(client, app):
     assert again.status_code == 200
     assert "14 + 3 = 17 vs CD 15 — sucesso" in again.json()["narrativa"]
     assert again.json()["mundo"]["vida"] == 4
+
+
+@pytest.mark.asyncio
+async def test_criar_rejeita_bonus_de_origem_em_todos_os_atributos(client):
+    created = await client.post("/api/cadastro", json={"usuario": "ori", "senha": "segredo"})
+    headers = {"Authorization": f"Bearer {created.json()['token']}"}
+    base = {"forca": 15, "agilidade": 14, "vigor": 13, "percepcao": 12, "intelecto": 10, "essencia": 8}
+    body = {
+        "nome": "Lia",
+        "origem": "Mercenário",
+        "origemId": "mercenario",
+        "arquetipo": "Espadachim",
+        "classe": "espadachim",
+        "atributos": base,
+        "bonusOrigem": {name: 2 for name in base},
+    }
+    rejected = await client.post("/api/personagens", headers=headers, json=body)
+    assert rejected.status_code == 400
+    body["bonusOrigem"] = {"agilidade": 2, "forca": 1}
+    accepted = await client.post("/api/personagens", headers=headers, json=body)
+    assert accepted.status_code == 200
+    assert accepted.json()["atributos"]["agilidade"] == 16
+    assert accepted.json()["atributos"]["forca"] == 16

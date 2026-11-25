@@ -399,10 +399,17 @@ class Store:
         attributes = json.loads(row["attributes_json"])
         raw_sheet = row["sheet_json"] if "sheet_json" in row.keys() else None
         sheet = json.loads(raw_sheet) if raw_sheet else {}
+        changed = False
         if sheet.get("escala") != "5e":
             from app.engine.sheet import migrate_legacy
 
             attributes, sheet = migrate_legacy(attributes, row["archetype"])
+            changed = True
+        from app.catalog import rename_subclass
+
+        if rename_subclass(sheet):
+            changed = True
+        if changed:
             self._db.execute(
                 "UPDATE characters SET attributes_json = ?, sheet_json = ? WHERE id = ?",
                 (json.dumps(attributes), json.dumps(sheet, ensure_ascii=False), row["id"]),

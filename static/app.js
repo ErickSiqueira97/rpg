@@ -72,7 +72,7 @@ async function prepararCatalogo() {
   preencherSelecao(document.querySelector("#raca"), catalogo.racas, (item) => item.nome);
   preencherSelecao(document.querySelector("#origem-id"), catalogo.origens, (item) => item.nome);
   preencherSelecao(document.querySelector("#classe"), catalogo.classes, (item) => item.nome);
-  preencherSelecao(document.querySelector("#via"), [{ id: "", nome: "Sem Via" }, ...catalogo.vias], (item) => item.nome);
+  preencherSelecao(document.querySelector("#via"), [{ id: "", nome: "Sem Via (opcional: escolha uma)" }, ...catalogo.vias], (item) => item.nome);
   preencherSelecao(document.querySelector("#traco"), [{ id: "", nome: "Nenhum" }, ...catalogo.tracos], (item) => item.nome);
   sincronizarClasse();
   sincronizarOrigem();
@@ -85,13 +85,19 @@ function sincronizarClasse() {
   preencherSelecao(document.querySelector("#subclasse"), (classe.subclasses || []).map((nome) => ({ id: nome, nome })), (item) => item.nome);
 }
 
-function sincronizarOrigem() {
+function sincronizarOrigem(manterBonus) {
   const origem = catalogo.origens.find((item) => item.id === document.querySelector("#origem-id").value);
   document.querySelector("#origem").value = origem.nome;
-  bonusOrigem = {};
-  bonusOrigem[origem.atributos[0]] = 2;
-  bonusOrigem[origem.atributos[1]] = 1;
+  if (!manterBonus) {
+    bonusOrigem = {};
+    bonusOrigem[origem.atributos[0]] = 2;
+    bonusOrigem[origem.atributos[1]] = 1;
+  }
+  document.querySelectorAll("[data-bonus]").forEach((button) => {
+    button.disabled = !origem.atributos.includes(button.dataset.bonus);
+  });
   atualizarPontos();
+  atualizarDicaVia();
 }
 
 function sincronizarRaca() {
@@ -112,14 +118,43 @@ document.querySelector("#classe").addEventListener("change", sincronizarClasse);
 document.querySelector("#origem-id").addEventListener("change", sincronizarOrigem);
 document.querySelector("#raca").addEventListener("change", sincronizarRaca);
 
+function moverBonus(attr) {
+  const origem = catalogo.origens.find((item) => item.id === document.querySelector("#origem-id").value);
+  if (!origem.atributos.includes(attr)) return;
+  const plus2 = Object.keys(bonusOrigem).find((name) => bonusOrigem[name] === 2);
+  const plus1 = Object.keys(bonusOrigem).find((name) => bonusOrigem[name] === 1);
+  if (attr === plus2) return;
+  const next = {};
+  if (attr === plus1 && plus2) {
+    next[attr] = 2;
+    next[plus2] = 1;
+  } else {
+    next[attr] = 2;
+    const keep = plus1 || plus2;
+    if (keep && keep !== attr) next[keep] = 1;
+  }
+  bonusOrigem = next;
+  atualizarPontos();
+}
+
+function atualizarDicaVia(data) {
+  const dica = document.querySelector("#via-dica");
+  const vazia = !document.querySelector("#via").value;
+  dica.hidden = !vazia;
+  if (!vazia) return;
+  let texto = "Classes marciais podem escolher uma Via para ganhar Pontos de Energia.";
+  const sugerida = data && data.viaSugerida;
+  if (sugerida) {
+    const via = catalogo.vias.find((item) => item.id === sugerida);
+    if (via) texto += " Para esta ficha, " + via.nome + " combina, mas Sem Via também vale.";
+  }
+  dica.textContent = texto;
+}
+
+document.querySelector("#via").addEventListener("change", () => atualizarDicaVia(window.sugestaoAtual));
+
 document.querySelectorAll("[data-bonus]").forEach((button) => {
-  button.addEventListener("click", () => {
-    const origem = catalogo.origens.find((item) => item.id === document.querySelector("#origem-id").value);
-    if (!origem.atributos.includes(button.dataset.bonus)) return;
-    const current = bonusOrigem[button.dataset.bonus] || 0;
-    bonusOrigem[button.dataset.bonus] = current === 2 ? 0 : current + 1;
-    atualizarPontos();
-  });
+  button.addEventListener("click", () => moverBonus(button.dataset.bonus));
 });
 
 document.querySelector("#quero").addEventListener("click", async () => {
@@ -137,12 +172,19 @@ document.querySelector("#quero").addEventListener("click", async () => {
     document.querySelector("#classe").value = data.classe;
     sincronizarClasse();
     document.querySelector("#subclasse").value = data.subclasse;
-    if (data.origemId) {
-      document.querySelector("#origem-id").value = data.origemId;
-      sincronizarOrigem();
+    if (data.origemId) document.querySelector("#origem-id").value = data.origemId;
+    if (data.atributos) {
+      Object.entries(data.atributos).forEach(([name, value]) => {
+        const input = document.getElementById(name);
+        if (input) input.value = value;
+      });
     }
+    if (data.bonusOrigem) bonusOrigem = Object.assign({}, data.bonusOrigem);
+    sincronizarOrigem(Boolean(data.bonusOrigem));
     document.querySelector("#via").value = data.via || "";
     document.querySelector("#traco").value = data.traco || "";
+    window.sugestaoAtual = data;
+    atualizarDicaVia(data);
     const conhecido = data.fonte === "tabela" && data.build
       ? " Build conhecido: " + data.build + "."
       : " A tabela não reconheceu o pedido.";

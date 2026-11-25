@@ -178,12 +178,61 @@ def test_quero_nao_devolve_apelido_e_forma_respeita_o_teto():
     assert suggest_build("quero ser um padeiro de tortas") is None
     kirito = suggest_build("kirito")
     assert kirito["classe"] == "espadachim"
-    assert kirito["subclasse"] == "Três Lâminas"
+    assert kirito["subclasse"] == "Múltiplas Lâminas"
+    assert kirito["atributos"]["agilidade"] == 15
+    assert kirito["atributos"]["forca"] == 14
+    assert kirito["bonusOrigem"] == {"agilidade": 2, "forca": 1}
+    assert "duas mãos" not in kirito["conceito"]
+    assert "cada mão" in kirito["conceito"]
     assert kirito["raca"] == "humano"
     assert kirito["via"] == ""
     assert kirito["raca"] != "receptaculo"
     assert "kirito" not in __import__("json").dumps(kirito).lower()
     assert suggest_build("quero ser o kirito")["build"] == "Lâmina Dupla"
+
+
+def test_bonus_de_origem_e_o_ataque_de_cada_build():
+    from app.catalog import _BUILDS, origin_by_id
+    from app.engine.math import point_buy_cost
+    from app.engine.sheet import apply_origin_bonus
+
+    base = {"forca": 15, "agilidade": 14, "vigor": 13, "percepcao": 12, "intelecto": 10, "essencia": 8}
+    try:
+        apply_origin_bonus(base, {name: 2 for name in base}, ["forca", "agilidade", "vigor"])
+        raise AssertionError("deveria recusar +2 em tudo")
+    except ValueError:
+        pass
+    moved = apply_origin_bonus(base, {"agilidade": 2, "forca": 1}, ["forca", "agilidade", "vigor"])
+    assert moved["agilidade"] == 16 and moved["forca"] == 16
+    trio = apply_origin_bonus(base, {"forca": 1, "agilidade": 1, "vigor": 1}, ["forca", "agilidade", "vigor"])
+    assert trio["vigor"] == 14
+    try:
+        apply_origin_bonus(base, {"essencia": 2, "forca": 1}, ["forca", "agilidade", "vigor"])
+        raise AssertionError("atributo fora da origem")
+    except ValueError:
+        pass
+    for build in _BUILDS:
+        origin = origin_by_id(build["origemId"])
+        bonus = build["bonusOrigem"]
+        assert set(bonus) <= set(origin["atributos"])
+        assert sorted(bonus.values(), reverse=True) == [2, 1]
+        assert build["atributos"][build["ataque"]] == 15
+        assert bonus[build["ataque"]] == 2
+        assert point_buy_cost(build["atributos"]) == 27
+        assert build["subclasse"] != "Três Lâminas"
+
+
+def test_renomeia_subclasse_tres_laminas(tmp_path):
+    from app.db import Store
+
+    store = Store(str(tmp_path / "rpg.sqlite"))
+    user, _token = store.create_user("lia", "segredo", 1, 7)
+    attrs = {name: 10 for name in ("forca", "agilidade", "vigor", "percepcao", "intelecto", "essencia")}
+    sheet = {"escala": "5e", "subclasse": "Três Lâminas", "classeId": "espadachim", "nivel": 1, "peMax": 0, "vidaMax": 10}
+    character = store.create_character(user.id, "Lia", "Porto", "Espadachim", "", attrs, 1, sheet)
+    loaded = store.get_character(user.id, character.id)
+    assert loaded.sheet["subclasse"] == "Múltiplas Lâminas"
+    store.close()
 
 
 def test_xyzabc_nao_vira_build_conhecido():
