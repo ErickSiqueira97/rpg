@@ -22,7 +22,8 @@ from app.missions import STARTER, mission_by_id
 from app.moderation import Moderator
 from app.narrator import GameEvent, Narrator, new_saga_world
 from app.plans import daily_limit, day_key, days_left, effective_plan, next_reset_at
-from app.engine.sheet import apply_origin_bonus, blank_sheet, class_id_for, migrate_legacy, recompute_pe
+from app.catalog import origin_by_id, public_catalog, suggest_build
+from app.engine.sheet import apply_asi, apply_origin_bonus, blank_sheet, class_id_for, migrate_legacy, recompute_pe
 from app.story import clean_line, validate_attributes
 
 USERNAME = re.compile(r"^[A-Za-z0-9_\u00C0-\u024f]{3,24}$")
@@ -113,6 +114,59 @@ def create_app(
         except ValueError as exc:
             return _erro(400, "ficha", str(exc))
         character = store.create_character(user.id, name, origin, archetype, concept, attributes, clock(), sheet)
+        return _public_character(character)
+
+    @app.get("/api/catalogo")
+    async def catalogo():
+        return public_catalog()
+
+    @app.post("/api/quero")
+    async def quero(request: Request):
+        user = _user(request, store)
+        if isinstance(user, JSONResponse):
+            return user
+        body = await _body(request)
+        build = suggest_build(str(body.get("texto") or ""))
+        if build is None:
+            return _erro(400, "quero", "Diga o que você quer ser, em uma frase.")
+        return build
+
+    @app.post("/api/personagens/{character_id}/subir")
+    async def subir(character_id: str, request: Request):
+        user = _user(request, store)
+        if isinstance(user, JSONResponse):
+            return user
+        character = store.get_character(user.id, character_id)
+        if character is None:
+            return _erro(404, "nao_encontrado", "Ficha não encontrada.")
+        try:
+            attributes, sheet = apply_asi(character.attributes, character.sheet or {}, await _body(request))
+        except ValueError as exc:
+            return _erro(400, "ficha", str(exc))
+        character.attributes = attributes
+        character.sheet = sheet
+        store.update_character(character)
+        return _public_character(character)
+
+    @app.post("/api/personagens/{character_id}/rito")
+    async def rito(character_id: str, request: Request):
+        user = _user(request, store)
+        if isinstance(user, JSONResponse):
+            return user
+        character = store.get_character(user.id, character_id)
+        if character is None:
+            return _erro(404, "nao_encontrado", "Ficha não encontrada.")
+        sheet = dict(character.sheet or {})
+        stage = int(sheet.get("estagio") or 0)
+        gates = (5, 11, 17)
+        if stage >= 3:
+            return _erro(400, "rito", "A linhagem já está no último estágio.")
+        if int(sheet.get("nivel") or 1) < gates[stage] or not sheet.get("ritoPronto"):
+            return _erro(400, "rito", "O rito abre depois de concluir uma missão já nesse nível.")
+        sheet["estagio"] = stage + 1
+        sheet["ritoPronto"] = False
+        character.sheet = sheet
+        store.update_character(character)
         return _public_character(character)
 
     @app.get("/api/personagens")
@@ -242,6 +296,7 @@ def _build_sheet(body: dict, origin: str, archetype: str) -> tuple[dict, dict, s
     raw = body.get("atributos") or {}
     class_name = str(body.get("classe") or archetype)
     class_id = class_id_for(class_name)
+    origin_row = origin_by_id(str(body.get("origemId") or ""))
     values = {name: raw.get(name) for name in ("forca", "agilidade", "vigor", "percepcao", "intelecto", "essencia")}
     try:
         base = {name: int(value) for name, value in values.items()}
@@ -249,11 +304,19 @@ def _build_sheet(body: dict, origin: str, archetype: str) -> tuple[dict, dict, s
         raise ValueError("Atributos inválidos.") from exc
     if all(8 <= value <= 15 for value in base.values()):
         bonus = body.get("bonusOrigem") or {}
+        if origin_row and bonus and any(name not in origin_row["atributos"] for name in bonus):
+            raise ValueError("O bônus da origem só cai nos três atributos dela.")
         if bonus:
             attributes = apply_origin_bonus(base, bonus)
+        elif origin_row:
+            first, second = origin_row["atributos"][0], origin_row["atributos"][1]
+            attributes = apply_origin_bonus(base, {first: 2, second: 1})
         else:
             attributes = apply_origin_bonus(base, {"vigor": 2, "forca": 1})
         sheet = blank_sheet(class_id, attributes)
+        if origin_row:
+            sheet["pericias"] = list(dict.fromkeys([*sheet["pericias"], *origin_row["pericias"]]))
+            sheet["talento"] = origin_row["talento"]
     else:
         attributes = validate_attributes(base)
         attributes, sheet = migrate_legacy(attributes, class_name)
@@ -263,7 +326,15 @@ def _build_sheet(body: dict, origin: str, archetype: str) -> tuple[dict, dict, s
         sheet["racaId"] = str(body.get("raca"))
     if body.get("via"):
         sheet["viaId"] = str(body.get("via"))
-    return attributes, sheet, class_name
+    if body.get("subclasse"):
+        sheet["subclasse"] = str(body.get("subclasse"))[:60]
+    if body.get("traco"):
+        sheet["traco"] = str(body.get("traco"))[:40]
+    if sheet.get("traco") == "nulo":
+        sheet["viaId"] = ""
+    if origin_row:
+        sheet["origemId"] = origin_row["id"]
+    return attributes, sheet, archetype
 
 
 def _public_character(character) -> dict:

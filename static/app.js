@@ -37,20 +37,120 @@ function atributos() {
   return values;
 }
 
+const CUSTO = { 8: 0, 9: 1, 10: 2, 11: 3, 12: 4, 13: 5, 14: 7, 15: 9 };
+let bonusOrigem = { forca: 2, agilidade: 1 };
+
+function custoCompra() {
+  return Object.values(atributos()).reduce((sum, value) => sum + (CUSTO[value] || 0), 0);
+}
+
 function atualizarPontos() {
-  const total = Object.values(atributos()).reduce((sum, value) => sum + value, 0);
-  document.querySelector("#pontos").textContent = "Pontos usados: " + (total - 24) + " / 12";
+  document.querySelector("#pontos").textContent = "Pontos usados: " + custoCompra() + " / 27";
+  document.querySelectorAll("[data-bonus]").forEach((button) => {
+    button.textContent = "+" + (bonusOrigem[button.dataset.bonus] || 0);
+  });
 }
 
 document.querySelectorAll("[data-attr]").forEach((input) => {
   input.addEventListener("input", atualizarPontos);
 });
 
+let catalogo = null;
+
+function preencherSelecao(select, items, label) {
+  select.replaceChildren();
+  items.forEach((item) => {
+    const option = document.createElement("option");
+    option.value = item.id || item;
+    option.textContent = label(item);
+    select.append(option);
+  });
+}
+
+async function prepararCatalogo() {
+  if (!catalogo) catalogo = await api("/api/catalogo");
+  preencherSelecao(document.querySelector("#raca"), catalogo.racas, (item) => item.nome);
+  preencherSelecao(document.querySelector("#origem-id"), catalogo.origens, (item) => item.nome);
+  preencherSelecao(document.querySelector("#classe"), catalogo.classes, (item) => item.nome);
+  preencherSelecao(document.querySelector("#via"), catalogo.vias, (item) => item.nome);
+  preencherSelecao(document.querySelector("#traco"), [{ id: "", nome: "Nenhum" }, ...catalogo.tracos], (item) => item.nome);
+  sincronizarClasse();
+  sincronizarOrigem();
+  sincronizarRaca();
+  atualizarPontos();
+}
+
+function sincronizarClasse() {
+  const classe = catalogo.classes.find((item) => item.id === document.querySelector("#classe").value);
+  preencherSelecao(document.querySelector("#subclasse"), (classe.subclasses || []).map((nome) => ({ id: nome, nome })), (item) => item.nome);
+}
+
+function sincronizarOrigem() {
+  const origem = catalogo.origens.find((item) => item.id === document.querySelector("#origem-id").value);
+  document.querySelector("#origem").value = origem.nome;
+  bonusOrigem = {};
+  bonusOrigem[origem.atributos[0]] = 2;
+  bonusOrigem[origem.atributos[1]] = 1;
+  atualizarPontos();
+}
+
+function sincronizarRaca() {
+  const raca = catalogo.racas.find((item) => item.id === document.querySelector("#raca").value);
+  const select = document.querySelector("#variante");
+  select.replaceChildren();
+  (raca.variantes || ["—"]).forEach((nome) => {
+    const option = document.createElement("option");
+    option.value = nome;
+    option.textContent = nome;
+    select.append(option);
+  });
+  select.hidden = !raca.variantes;
+  select.previousElementSibling.hidden = !raca.variantes;
+}
+
+document.querySelector("#classe").addEventListener("change", sincronizarClasse);
+document.querySelector("#origem-id").addEventListener("change", sincronizarOrigem);
+document.querySelector("#raca").addEventListener("change", sincronizarRaca);
+
+document.querySelectorAll("[data-bonus]").forEach((button) => {
+  button.addEventListener("click", () => {
+    const origem = catalogo.origens.find((item) => item.id === document.querySelector("#origem-id").value);
+    if (!origem.atributos.includes(button.dataset.bonus)) return;
+    const current = bonusOrigem[button.dataset.bonus] || 0;
+    bonusOrigem[button.dataset.bonus] = current === 2 ? 0 : current + 1;
+    atualizarPontos();
+  });
+});
+
+document.querySelector("#quero").addEventListener("click", async () => {
+  try {
+    if (!catalogo) await prepararCatalogo();
+    const data = await api("/api/quero", {
+      method: "POST",
+      body: JSON.stringify({ texto: "quero ser " + document.querySelector("#quero-texto").value }),
+    });
+    document.querySelector("#nome").value = data.nome;
+    document.querySelector("#raca").value = data.raca;
+    document.querySelector("#classe").value = data.classe;
+    sincronizarClasse();
+    document.querySelector("#subclasse").value = data.subclasse;
+    if (data.origemId) {
+      document.querySelector("#origem-id").value = data.origemId;
+      sincronizarOrigem();
+    }
+    if (data.via) document.querySelector("#via").value = data.via;
+    document.querySelector("#traco").value = data.traco || "";
+    document.querySelector("#quero-resultado").textContent = "Sugestão: " + data.nome + ". O nome pedido não entra na ficha.";
+  } catch (error) {
+    say(error.message);
+  }
+});
+
 document.querySelectorAll("[data-step]").forEach((button) => {
   button.addEventListener("click", () => {
     const input = document.getElementById(button.dataset.step);
     const next = Number(input.value) + Number(button.dataset.dir);
-    if (next < 4 || next > 10) return;
+    if (next < 8 || next > 15) return;
     input.value = String(next);
     atualizarPontos();
   });
@@ -230,8 +330,10 @@ async function arquivarSaga(id) {
 }
 
 document.querySelector("#abrir-ficha").addEventListener("click", () => {
-  fichaDialog.showModal();
-  document.querySelector("#nome").focus();
+  prepararCatalogo().then(() => {
+    fichaDialog.showModal();
+    document.querySelector("#nome").focus();
+  }).catch((error) => say(error.message));
 });
 document.querySelector("#fechar-ficha").addEventListener("click", () => fichaDialog.close());
 
@@ -245,9 +347,16 @@ document.querySelector("#ficha").addEventListener("submit", async (event) => {
       body: JSON.stringify({
         nome: document.querySelector("#nome").value,
         origem: document.querySelector("#origem").value,
-        arquetipo: document.querySelector("#arquetipo").value,
+        origemId: document.querySelector("#origem-id").value,
+        arquetipo: document.querySelector("#classe").selectedOptions[0].textContent,
+        classe: document.querySelector("#classe").value,
+        subclasse: document.querySelector("#subclasse").value,
+        raca: document.querySelector("#raca").value,
+        via: document.querySelector("#traco").value === "nulo" ? "" : document.querySelector("#via").value,
+        traco: document.querySelector("#traco").value,
         conceito: document.querySelector("#conceito").value,
         atributos: atributos(),
+        bonusOrigem: bonusOrigem,
       }),
     });
     fichaDialog.close();
@@ -257,6 +366,31 @@ document.querySelector("#ficha").addEventListener("submit", async (event) => {
     say(error.message);
   } finally {
     button.disabled = false;
+  }
+});
+
+document.querySelector("#subir").addEventListener("click", async () => {
+  if (!fichaAtual) return;
+  try {
+    fichaAtual = await api("/api/personagens/" + fichaAtual.id + "/subir", {
+      method: "POST",
+      body: JSON.stringify({ modo: "um", atributo: document.querySelector("#asi").value }),
+    });
+    say("Nível atualizado.");
+    const saga = await api("/api/sagas/" + sagaId);
+    preencherPainel(saga.mundo, saga.resumo, fichaAtual);
+  } catch (error) {
+    say(error.message);
+  }
+});
+
+document.querySelector("#rito").addEventListener("click", async () => {
+  if (!fichaAtual) return;
+  try {
+    fichaAtual = await api("/api/personagens/" + fichaAtual.id + "/rito", { method: "POST", body: "{}" });
+    say("Estágio " + (fichaAtual.estagio || (fichaAtual.ficha && fichaAtual.ficha.estagio)));
+  } catch (error) {
+    say(error.message);
   }
 });
 
@@ -351,7 +485,19 @@ function preencherPainel(mundo, resumo, ficha) {
   });
   document.querySelector("#diario-vazio").hidden = diario.childElementCount > 0;
   if (!ficha) return;
-  document.querySelector("#ficha-resumo").textContent = ficha.nome + " · " + ficha.arquetipo;
+  const extra = ficha.ficha || {};
+  document.querySelector("#ficha-resumo").textContent = ficha.nome + " · " + ficha.arquetipo + " · nível " + (ficha.nivel || 1);
+  document.querySelector("#ficha-extra").textContent = [
+    "PE " + (mundo.pe != null ? mundo.pe : extra.peMax || 0) + "/" + (mundo.peMax || extra.peMax || 0),
+    extra.subclasse || "",
+    "estágio " + (extra.estagio || 0),
+    (mundo.formas || []).map((forma) => forma.nome).join(", "),
+  ].filter(Boolean).join(" · ");
+  const pendente = Boolean(ficha.pendente);
+  document.querySelector("#subir").hidden = !pendente;
+  document.querySelector("#asi").hidden = !pendente;
+  document.querySelector("#asi-rotulo").hidden = !pendente;
+  document.querySelector("#rito").hidden = !(extra.ritoPronto);
   const vida = mundo.vida != null ? mundo.vida : ficha.vida;
   const maximo = mundo.vidaMax || ficha.vidaMax || vida;
   document.querySelector("#vida-rotulo").textContent = "Vida " + vida + "/" + maximo;

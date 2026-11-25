@@ -141,6 +141,10 @@ def resolve_action(
     if intent.get("intencao") in {"descansar_longo", "descanso_longo"} or "descanso longo" in _fold(action):
         return _long_rest(character, world, sheet, mode, now)
 
+    if intent.get("intencao") in {"ativar_transformacao", "transformar"} or re.search(
+        r"\b(transform\w*|despertar|entro na forma|ativar forma)\b", _fold(action)
+    ):
+        return _transform(character, world, sheet, seed, mode, profile)
     if intent.get("tipo") == "ataque" or intent.get("intencao") == "atacar":
         return _attack(character, world, sheet, intent, seed, mode, profile)
     if intent.get("tipo") in {"pericia", "atributo", "salvaguarda"}:
@@ -502,6 +506,57 @@ def _long_rest(character, world, sheet, mode, now: int) -> dict:
     world["condicoes"] = []
     linha = f"Descanso longo. Vida {world['vida']}/{world['vidaMax']}. Exaustão {world.get('exaustao', 0)}."
     return {"linhas": [linha], "rolagem": None, "mundo": world, "sheet": sheet}
+
+
+def _transform(character, world, sheet, seed, mode, profile) -> dict:
+    from app.catalog import transformation_offer
+    from app.engine.math import temp_hp_cap
+
+    level = int(sheet.get("nivel") or 1)
+    forms = transformation_offer(
+        sheet.get("racaId") or "",
+        sheet.get("classeId") or "",
+        level,
+        int(sheet.get("estagio") or 0),
+        sheet.get("subclasse") or "",
+    )
+    rank = {"menor": 1, "maior": 2, "suprema": 3}
+    limit = 3 if mode == "saga" else 2
+    if mode == "pvp" and level < 11:
+        limit = 1
+    allowed = [form for form in forms if rank[form["grau"]] <= limit and not (mode != "saga" and form["grau"] == "suprema")]
+    if not allowed:
+        return {"linhas": ["A forma pedida não cabe no nível, no estágio ou no modo."], "rolagem": None, "mundo": world, "sheet": sheet}
+    form = allowed[-1]
+    active = list(world.get("formas") or [])
+    active_grades = {item.get("grau") for item in active}
+    if form["grau"] != "menor" and any(grade != "menor" for grade in active_grades):
+        return {"linhas": ["Já há uma forma Maior ou Suprema. Só uma delas por vez, e a outra precisa ser Menor."], "rolagem": None, "mundo": world, "sheet": sheet}
+    if mode != "saga" and form["grau"] == "maior" and world.get("maiorUsada"):
+        return {"linhas": ["A missão já usou a única forma Maior."], "rolagem": None, "mundo": world, "sheet": sheet}
+    cap = temp_hp_cap(level, form["grau"])
+    gained = min(cap, {"menor": 2, "maior": 4, "suprema": 6}[form["grau"]] * level)
+    world["vidaTemp"] = max(int(world.get("vidaTemp") or 0), gained)
+    active.append({"id": form["id"], "grau": form["grau"], "nome": form["nome"], "rodadas": 10, "origem": form["origem"]})
+    world["formas"] = active
+    if form["grau"] == "maior" and mode != "saga":
+        world["maiorUsada"] = True
+    linhas = [f"Forma {form['nome']} ({form['grau']}). PV temporários {world['vidaTemp']} (teto {cap})."]
+    roll = None
+    if form["grau"] in {"maior", "suprema"}:
+        cd = 16 if form["grau"] == "suprema" else 14
+        ability = modifier(character.attributes.get("percepcao", 10))
+        prof = proficiency_bonus(sheet) if "percepcao" in set(sheet.get("salvaguardas") or []) else 0
+        rng = roller(seed + "|dominio")
+        dice, used, modo = roll_d20(rng, False, False)
+        total = used + ability + prof - 2 * int(world.get("exaustao") or 0)
+        success = total >= cd
+        roll = {"dados": dice, "usado": used, "total": total, "cd": cd, "resultado": "sucesso" if success else "falha"}
+        linhas.append(f"🛡️ Domínio (Percepção): {used} + {ability + prof} = {total} vs CD {cd} — {'sucesso' if success else 'falha'}")
+        if not success:
+            world["dominioFalhou"] = True
+            linhas.append("Falha no Domínio: o servidor escolhe o alvo mais próximo.")
+    return {"linhas": linhas, "rolagem": roll, "mundo": world, "sheet": sheet}
 
 
 def fresh_world(character, place: str, objective: str) -> dict:

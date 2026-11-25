@@ -241,6 +241,9 @@ class Narrator:
                     sheet = recompute_pe(sheet, character.attributes)
                     world["xpPago"] = True
                     world["vidaMax"] = sheet.get("vidaMax") or world.get("vidaMax")
+                    stage = int(sheet.get("estagio") or 0)
+                    if stage < 3 and int(sheet.get("nivel") or 1) >= (5, 11, 17)[stage]:
+                        sheet["ritoPronto"] = True
                     character.sheet = sheet
                 character.sheet = sheet
                 self.store.update_character(character)

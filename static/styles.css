@@ -6,6 +6,7 @@ input, textarea, select, button { padding: 0.5rem; min-height: 2.75rem; }
 textarea { width: 100%; min-height: 5rem; }
 button { margin: 0.2rem 0.4rem 0.2rem 0; }
 button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 3px solid #0b57d0; outline-offset: 2px; }
+[hidden] { display: none !important; }
 .topo { display: flex; flex-wrap: wrap; gap: 0.6rem 1rem; align-items: center; justify-content: space-between; }
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr)); gap: 0.75rem; }
 .card { border: 1px solid #bbb; padding: 0.75rem; background: #fff; }

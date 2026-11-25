@@ -42,29 +42,39 @@
   <dialog id="ficha-dialog" aria-labelledby="ficha-titulo">
     <form id="ficha">
       <h2 id="ficha-titulo">Novo personagem</h2>
+      <label for="quero-texto">Quero ser tal personagem</label>
+      <input id="quero-texto" maxlength="120" autocomplete="off" placeholder="Descreva o herói, sem precisar do nome">
+      <button type="button" id="quero">Sugerir ficha</button>
+      <p id="quero-resultado"></p>
       <label for="nome">Nome</label>
-      <input id="nome" name="nome" required maxlength="40" autocomplete="off" autofocus>
-      <label for="origem">Origem</label>
-      <input id="origem" name="origem" required maxlength="80" value="Porto de Véspera">
-      <label for="arquetipo">Arquétipo</label>
-      <select id="arquetipo" name="arquetipo">
-        <option>Errante</option>
-        <option>Espadachim</option>
-        <option>Ocultista</option>
-        <option>Sentinela</option>
-        <option>Artífice</option>
-      </select>
+      <input id="nome" name="nome" required maxlength="40" autocomplete="off">
+      <label for="raca">Raça</label>
+      <select id="raca" name="raca"></select>
+      <label for="variante">Variante</label>
+      <select id="variante" name="variante"></select>
+      <label for="origem-id">Origem</label>
+      <select id="origem-id" name="origemId"></select>
+      <input id="origem" name="origem" required maxlength="80" value="Mercenário" class="visually-hidden" tabindex="-1" aria-hidden="true">
+      <label for="classe">Classe</label>
+      <select id="classe" name="classe"></select>
+      <label for="subclasse">Subclasse</label>
+      <select id="subclasse" name="subclasse"></select>
+      <label for="via">Via</label>
+      <select id="via" name="via"></select>
+      <label for="traco">Traço de Destino</label>
+      <select id="traco" name="traco"></select>
       <label for="conceito">Conceito</label>
       <textarea id="conceito" name="conceito" maxlength="400"></textarea>
       <fieldset>
         <legend>Atributos</legend>
-        <p id="pontos">Pontos usados: 12 / 12</p>
-        <div class="atributo"><span id="rotulo-forca">Força</span><button type="button" data-step="forca" data-dir="-1" aria-label="Diminuir Força">−</button><input id="forca" data-attr type="number" min="4" max="10" value="6" aria-labelledby="rotulo-forca"><button type="button" data-step="forca" data-dir="1" aria-label="Aumentar Força">+</button></div>
-        <div class="atributo"><span id="rotulo-agilidade">Agilidade</span><button type="button" data-step="agilidade" data-dir="-1" aria-label="Diminuir Agilidade">−</button><input id="agilidade" data-attr type="number" min="4" max="10" value="6" aria-labelledby="rotulo-agilidade"><button type="button" data-step="agilidade" data-dir="1" aria-label="Aumentar Agilidade">+</button></div>
-        <div class="atributo"><span id="rotulo-vigor">Vigor</span><button type="button" data-step="vigor" data-dir="-1" aria-label="Diminuir Vigor">−</button><input id="vigor" data-attr type="number" min="4" max="10" value="6" aria-labelledby="rotulo-vigor"><button type="button" data-step="vigor" data-dir="1" aria-label="Aumentar Vigor">+</button></div>
-        <div class="atributo"><span id="rotulo-percepcao">Percepção</span><button type="button" data-step="percepcao" data-dir="-1" aria-label="Diminuir Percepção">−</button><input id="percepcao" data-attr type="number" min="4" max="10" value="6" aria-labelledby="rotulo-percepcao"><button type="button" data-step="percepcao" data-dir="1" aria-label="Aumentar Percepção">+</button></div>
-        <div class="atributo"><span id="rotulo-intelecto">Intelecto</span><button type="button" data-step="intelecto" data-dir="-1" aria-label="Diminuir Intelecto">−</button><input id="intelecto" data-attr type="number" min="4" max="10" value="6" aria-labelledby="rotulo-intelecto"><button type="button" data-step="intelecto" data-dir="1" aria-label="Aumentar Intelecto">+</button></div>
-        <div class="atributo"><span id="rotulo-essencia">Essência</span><button type="button" data-step="essencia" data-dir="-1" aria-label="Diminuir Essência">−</button><input id="essencia" data-attr type="number" min="4" max="10" value="6" aria-labelledby="rotulo-essencia"><button type="button" data-step="essencia" data-dir="1" aria-label="Aumentar Essência">+</button></div>
+        <p id="pontos">Pontos usados: 27 / 27</p>
+        <p id="bonus-origem">Bônus da origem: +2 e +1</p>
+        <div class="atributo"><span id="rotulo-forca">Força</span><button type="button" data-step="forca" data-dir="-1" aria-label="Diminuir Força">−</button><input id="forca" data-attr type="number" min="8" max="15" value="15" aria-labelledby="rotulo-forca"><button type="button" data-step="forca" data-dir="1" aria-label="Aumentar Força">+</button><button type="button" data-bonus="forca">+2</button></div>
+        <div class="atributo"><span id="rotulo-agilidade">Agilidade</span><button type="button" data-step="agilidade" data-dir="-1" aria-label="Diminuir Agilidade">−</button><input id="agilidade" data-attr type="number" min="8" max="15" value="14" aria-labelledby="rotulo-agilidade"><button type="button" data-step="agilidade" data-dir="1" aria-label="Aumentar Agilidade">+</button><button type="button" data-bonus="agilidade">+1</button></div>
+        <div class="atributo"><span id="rotulo-vigor">Vigor</span><button type="button" data-step="vigor" data-dir="-1" aria-label="Diminuir Vigor">−</button><input id="vigor" data-attr type="number" min="8" max="15" value="13" aria-labelledby="rotulo-vigor"><button type="button" data-step="vigor" data-dir="1" aria-label="Aumentar Vigor">+</button><button type="button" data-bonus="vigor">+0</button></div>
+        <div class="atributo"><span id="rotulo-percepcao">Percepção</span><button type="button" data-step="percepcao" data-dir="-1" aria-label="Diminuir Percepção">−</button><input id="percepcao" data-attr type="number" min="8" max="15" value="12" aria-labelledby="rotulo-percepcao"><button type="button" data-step="percepcao" data-dir="1" aria-label="Aumentar Percepção">+</button><button type="button" data-bonus="percepcao">+0</button></div>
+        <div class="atributo"><span id="rotulo-intelecto">Intelecto</span><button type="button" data-step="intelecto" data-dir="-1" aria-label="Diminuir Intelecto">−</button><input id="intelecto" data-attr type="number" min="8" max="15" value="10" aria-labelledby="rotulo-intelecto"><button type="button" data-step="intelecto" data-dir="1" aria-label="Aumentar Intelecto">+</button><button type="button" data-bonus="intelecto">+0</button></div>
+        <div class="atributo"><span id="rotulo-essencia">Essência</span><button type="button" data-step="essencia" data-dir="-1" aria-label="Diminuir Essência">−</button><input id="essencia" data-attr type="number" min="8" max="15" value="8" aria-labelledby="rotulo-essencia"><button type="button" data-step="essencia" data-dir="1" aria-label="Aumentar Essência">+</button><button type="button" data-bonus="essencia">+0</button></div>
       </fieldset>
       <button type="submit">Criar ficha</button>
       <button type="button" id="fechar-ficha">Cancelar</button>
@@ -103,6 +113,20 @@
         </div>
         <div role="tabpanel" id="painel-ficha" aria-labelledby="tab-ficha" hidden>
           <p id="ficha-resumo"></p>
+          <p id="ficha-extra"></p>
+          <p>
+            <label for="asi" id="asi-rotulo" hidden>Atributo da melhoria</label>
+            <select id="asi" hidden>
+              <option value="forca">Força</option>
+              <option value="agilidade">Agilidade</option>
+              <option value="vigor">Vigor</option>
+              <option value="percepcao">Percepção</option>
+              <option value="intelecto">Intelecto</option>
+              <option value="essencia">Essência</option>
+            </select>
+            <button type="button" id="subir" hidden>Subir de nível (+2)</button>
+            <button type="button" id="rito" hidden>Cumprir rito de estágio</button>
+          </p>
           <p id="vida-rotulo"></p>
           <div class="barra" aria-hidden="true"><span id="vida-barra"></span></div>
           <ul id="atributos-lista"></ul>

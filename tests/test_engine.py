@@ -145,6 +145,36 @@ def test_descanso_curto_so_um_por_missao_e_pe_pela_metade():
     assert "recusado" in second["linhas"][0]
 
 
+def test_quero_nao_devolve_apelido_e_forma_respeita_o_teto():
+    from app.catalog import public_catalog, suggest_build
+
+    catalogo = public_catalog()
+    assert len(catalogo["racas"]) == 19
+    assert len(catalogo["classes"]) == 15
+    assert len(catalogo["vias"]) == 9
+    assert len(catalogo["origens"]) == 20
+    build = suggest_build("quero ser um artista marcial do despertar")
+    assert build["nome"] == "Guerreiro do Despertar"
+    assert "apelido" not in build
+    hero = _hero()
+    hero.sheet["racaId"] = "licantropo"
+    hero.sheet["estagio"] = 2
+    hero.sheet["nivel"] = 10
+    world = {"vida": 20, "vidaMax": 20, "condicoes": [], "formas": []}
+    cedo = resolve_action(
+        character=hero, world=world, action="eu vou transformar", intent={"tipo": "nenhum", "intencao": "nenhum"},
+        seed="t", mode="missao", profile="normal", abertura=False, now=0,
+    )
+    assert "(menor)" in cedo["linhas"][0]
+    hero.sheet["nivel"] = 11
+    world["formas"] = [{"id": "outra", "grau": "maior", "nome": "Outra", "rodadas": 4}]
+    junto = resolve_action(
+        character=hero, world=world, action="eu vou transformar", intent={"tipo": "nenhum", "intencao": "nenhum"},
+        seed="t2", mode="saga", profile="normal", abertura=False, now=0,
+    )
+    assert "Maior" in junto["linhas"][0]
+
+
 def test_ataque_escreve_a_linha_no_chat():
     hero = _hero()
     world = {"vida": 12, "vidaMax": 12, "condicoes": [], "morte": {"sucessos": 0, "falhas": 0}, "inimigos": []}
