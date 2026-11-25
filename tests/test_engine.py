@@ -155,7 +155,27 @@ def test_quero_nao_devolve_apelido_e_forma_respeita_o_teto():
     assert len(catalogo["origens"]) == 20
     build = suggest_build("quero ser um artista marcial do despertar")
     assert build["nome"] == "Guerreiro do Despertar"
+    assert build["classe"] == "punho_de_aura"
     assert "apelido" not in build
+    goku = suggest_build("quero ser o goku")
+    assert goku["classe"] == "punho_de_aura"
+    assert goku["subclasse"] == "Ascensão"
+    assert goku["raca"] == "estelar"
+    assert goku["via"] == "aura"
+    assert goku["traco"] == "forjado_na_luta"
+    assert goku["conceito"]
+    assert goku["build"] == "Guerreiro do Despertar"
+    assert "goku" not in __import__("json").dumps(goku).lower()
+    sapo = suggest_build("quero ser o greninja")
+    assert sapo["nome"] == "Rã-Sombra da Correnteza"
+    assert sapo["variante"] == "Anfíbio"
+    assert "greninja" not in __import__("json").dumps(sapo).lower()
+    sombra = suggest_build("quero ser o protagonista de solo leveling")
+    assert sombra["classe"] == "invocador"
+    assert sombra["subclasse"] == "Pastor de Sombras"
+    assert sombra["traco"] == "sistema"
+    assert "leveling" not in __import__("json").dumps(sombra).lower()
+    assert suggest_build("quero ser um padeiro de tortas")["classe"] != "espadachim"
     hero = _hero()
     hero.sheet["racaId"] = "licantropo"
     hero.sheet["estagio"] = 2

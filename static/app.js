@@ -61,7 +61,7 @@ function preencherSelecao(select, items, label) {
   select.replaceChildren();
   items.forEach((item) => {
     const option = document.createElement("option");
-    option.value = item.id || item;
+    option.value = typeof item === "string" ? item : item.id;
     option.textContent = label(item);
     select.append(option);
   });
@@ -72,7 +72,7 @@ async function prepararCatalogo() {
   preencherSelecao(document.querySelector("#raca"), catalogo.racas, (item) => item.nome);
   preencherSelecao(document.querySelector("#origem-id"), catalogo.origens, (item) => item.nome);
   preencherSelecao(document.querySelector("#classe"), catalogo.classes, (item) => item.nome);
-  preencherSelecao(document.querySelector("#via"), catalogo.vias, (item) => item.nome);
+  preencherSelecao(document.querySelector("#via"), [{ id: "", nome: "Sem Via" }, ...catalogo.vias], (item) => item.nome);
   preencherSelecao(document.querySelector("#traco"), [{ id: "", nome: "Nenhum" }, ...catalogo.tracos], (item) => item.nome);
   sincronizarClasse();
   sincronizarOrigem();
@@ -130,7 +130,10 @@ document.querySelector("#quero").addEventListener("click", async () => {
       body: JSON.stringify({ texto: "quero ser " + document.querySelector("#quero-texto").value }),
     });
     document.querySelector("#nome").value = data.nome;
+    document.querySelector("#conceito").value = data.conceito || "";
     document.querySelector("#raca").value = data.raca;
+    sincronizarRaca();
+    if (data.variante) document.querySelector("#variante").value = data.variante;
     document.querySelector("#classe").value = data.classe;
     sincronizarClasse();
     document.querySelector("#subclasse").value = data.subclasse;
@@ -138,9 +141,10 @@ document.querySelector("#quero").addEventListener("click", async () => {
       document.querySelector("#origem-id").value = data.origemId;
       sincronizarOrigem();
     }
-    if (data.via) document.querySelector("#via").value = data.via;
+    document.querySelector("#via").value = data.via || "";
     document.querySelector("#traco").value = data.traco || "";
-    document.querySelector("#quero-resultado").textContent = "Sugestão: " + data.nome + ". O nome pedido não entra na ficha.";
+    const conhecido = data.build ? " Build conhecido: " + data.build + "." : " Nenhum build conhecido.";
+    document.querySelector("#quero-resultado").textContent = "Sugestão: " + data.nome + "." + conhecido + " O nome pedido não entra na ficha.";
   } catch (error) {
     say(error.message);
   }

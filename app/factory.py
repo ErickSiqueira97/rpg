@@ -22,7 +22,7 @@ from app.missions import STARTER, mission_by_id
 from app.moderation import Moderator
 from app.narrator import GameEvent, Narrator, new_saga_world
 from app.plans import daily_limit, day_key, days_left, effective_plan, next_reset_at
-from app.catalog import origin_by_id, public_catalog, suggest_build
+from app.catalog import origin_by_id, public_catalog, resolve_quero
 from app.engine.duel import archetype_profile, fight, profile_from_character
 from app.engine.sheet import (
     apply_asi,
@@ -152,7 +152,7 @@ def create_app(
         if isinstance(user, JSONResponse):
             return user
         body = await _body(request)
-        build = suggest_build(str(body.get("texto") or ""))
+        build = await resolve_quero(str(body.get("texto") or ""), request.app.state.gateway)
         if build is None:
             return _erro(400, "quero", "Diga o que você quer ser, em uma frase.")
         return build
