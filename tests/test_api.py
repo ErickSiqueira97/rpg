@@ -296,7 +296,7 @@ def test_recarregar_reabre_a_cena_sem_pedir_outra_narração():
 
 
 class _CenaDaCaixa:
-    async def stream(self, route, messages):
+    async def stream(self, route, messages, **kwargs):
         from app.llm import Piece
 
         yield Piece(
@@ -311,7 +311,7 @@ class _CenaDaCaixa:
 
 
 class _SoEstado:
-    async def stream(self, route, messages):
+    async def stream(self, route, messages, **kwargs):
         from app.llm import Piece
 
         yield Piece(text='<estado>{"beat":"nao gravar"}</estado>', model="fake", finish_reason="stop")
@@ -373,7 +373,7 @@ async def test_turno_sem_prosa_nao_grava_memoria(tmp_path):
 
 
 class _ChaveInvalida:
-    async def stream(self, route, messages):
+    async def stream(self, route, messages, **kwargs):
         raise NarratorUnavailable(
             "API key not valid secret-key",
             provider="Gemini",
@@ -435,3 +435,31 @@ async def test_erro_do_narrador_vai_para_o_chat_e_para_o_log(tmp_path, caplog):
         assert "não responderam" in failed.json()["mensagem"]
     app.state.store.close()
     hidden.state.store.close()
+
+
+@pytest.mark.asyncio
+async def test_rolagem_gravada_nao_muda_no_reenvio(client, app):
+    from app.engine.rng import turn_key
+
+    headers, saga_id = await jogar(client)
+    opened = await client.post(f"/api/sagas/{saga_id}/turnos", headers=headers, json={"abertura": True})
+    assert opened.status_code == 200
+    saved = await client.get(f"/api/sagas/{saga_id}", headers=headers)
+    action = "Eu examino o selo."
+    key = turn_key(saga_id, len(saved.json()["mensagens"]), action)
+    world = saved.json()["mundo"]
+    world["vida"] = 4
+    app.state.store.save_roll(
+        saga_id,
+        key,
+        {
+            "linhas": ["🎲 Atletismo (Força): 14 + 3 = 17 vs CD 15 — sucesso"],
+            "rolagem": {"resultado": "sucesso", "total": 17, "cd": 15},
+            "mundo": world,
+            "sheet": (await client.get("/api/personagens", headers=headers)).json()[0]["ficha"],
+        },
+    )
+    again = await client.post(f"/api/sagas/{saga_id}/turnos", headers=headers, json={"texto": action})
+    assert again.status_code == 200
+    assert "14 + 3 = 17 vs CD 15 — sucesso" in again.json()["narrativa"]
+    assert again.json()["mundo"]["vida"] == 4

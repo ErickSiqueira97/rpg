@@ -55,7 +55,7 @@ class Store:
         self._db.execute("PRAGMA busy_timeout = 5000")
         if path != ":memory:":
             self._db.execute("PRAGMA journal_mode = WAL")
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._migrate()
 
     def close(self) -> None:
@@ -90,6 +90,7 @@ class Store:
                 archetype TEXT NOT NULL,
                 concept TEXT NOT NULL,
                 attributes_json TEXT NOT NULL,
+                sheet_json TEXT,
                 created_at INTEGER NOT NULL
             );
             CREATE TABLE IF NOT EXISTS sagas (
@@ -126,6 +127,12 @@ class Store:
                 provider_completion_tokens INTEGER,
                 created_at INTEGER NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS rolls (
+                saga_id TEXT NOT NULL,
+                turn_key TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                PRIMARY KEY (saga_id, turn_key)
+            );
             CREATE TABLE IF NOT EXISTS daily_turns (
                 user_id TEXT NOT NULL,
                 day TEXT NOT NULL,
@@ -143,6 +150,9 @@ class Store:
             self._db.execute("ALTER TABLE sagas ADD COLUMN recommended_level INTEGER")
         if "archived" not in columns:
             self._db.execute("ALTER TABLE sagas ADD COLUMN archived INTEGER NOT NULL DEFAULT 0")
+        character_columns = {row[1] for row in self._db.execute("PRAGMA table_info(characters)")}
+        if "sheet_json" not in character_columns:
+            self._db.execute("ALTER TABLE characters ADD COLUMN sheet_json TEXT")
 
     def _user_from(self, row: sqlite3.Row) -> User:
         return User(
@@ -222,18 +232,29 @@ class Store:
         concept: str,
         attributes: dict[str, int],
         now: int,
+        sheet: dict | None = None,
     ) -> Character:
         character_id = str(uuid.uuid4())
         with self._lock:
             self._db.execute(
                 """
-                INSERT INTO characters (id, user_id, name, origin, archetype, concept, attributes_json, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO characters (id, user_id, name, origin, archetype, concept, attributes_json, sheet_json, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (character_id, user_id, name, origin, archetype, concept, json.dumps(attributes), now),
+                (
+                    character_id,
+                    user_id,
+                    name,
+                    origin,
+                    archetype,
+                    concept,
+                    json.dumps(attributes),
+                    json.dumps(sheet or {}, ensure_ascii=False),
+                    now,
+                ),
             )
             self._db.commit()
-        return Character(character_id, user_id, name, origin, archetype, concept, attributes)
+        return Character(character_id, user_id, name, origin, archetype, concept, attributes, sheet or {})
 
     def list_characters(self, user_id: str) -> list[Character]:
         with self._lock:
@@ -251,7 +272,62 @@ class Store:
             ).fetchone()
         return self._character(row) if row else None
 
+    def update_character(self, character: Character) -> None:
+        with self._lock:
+            self._db.execute(
+                """
+                UPDATE characters
+                SET name = ?, origin = ?, archetype = ?, concept = ?, attributes_json = ?, sheet_json = ?
+                WHERE id = ? AND user_id = ?
+                """,
+                (
+                    character.name,
+                    character.origin,
+                    character.archetype,
+                    character.concept,
+                    json.dumps(character.attributes),
+                    json.dumps(character.sheet or {}, ensure_ascii=False),
+                    character.id,
+                    character.user_id,
+                ),
+            )
+            self._db.commit()
+
+    def save_roll(self, saga_id: str, turn_key: str, payload: dict) -> None:
+        with self._lock:
+            self._db.execute(
+                """
+                INSERT INTO rolls (saga_id, turn_key, payload_json)
+                VALUES (?, ?, ?)
+                ON CONFLICT(saga_id, turn_key) DO UPDATE SET payload_json = excluded.payload_json
+                """,
+                (saga_id, turn_key, json.dumps(payload, ensure_ascii=False)),
+            )
+            self._db.commit()
+
+    def get_roll(self, saga_id: str, turn_key: str) -> dict | None:
+        with self._lock:
+            row = self._db.execute(
+                "SELECT payload_json FROM rolls WHERE saga_id = ? AND turn_key = ?",
+                (saga_id, turn_key),
+            ).fetchone()
+        if row is None:
+            return None
+        return json.loads(row["payload_json"])
+
     def _character(self, row: sqlite3.Row) -> Character:
+        attributes = json.loads(row["attributes_json"])
+        raw_sheet = row["sheet_json"] if "sheet_json" in row.keys() else None
+        sheet = json.loads(raw_sheet) if raw_sheet else {}
+        if sheet.get("escala") != "5e":
+            from app.engine.sheet import migrate_legacy
+
+            attributes, sheet = migrate_legacy(attributes, row["archetype"])
+            self._db.execute(
+                "UPDATE characters SET attributes_json = ?, sheet_json = ? WHERE id = ?",
+                (json.dumps(attributes), json.dumps(sheet, ensure_ascii=False), row["id"]),
+            )
+            self._db.commit()
         return Character(
             id=row["id"],
             user_id=row["user_id"],
@@ -259,7 +335,8 @@ class Store:
             origin=row["origin"],
             archetype=row["archetype"],
             concept=row["concept"],
-            attributes=json.loads(row["attributes_json"]),
+            attributes=attributes,
+            sheet=sheet,
         )
 
     def create_saga(

@@ -22,6 +22,7 @@ from app.missions import STARTER, mission_by_id
 from app.moderation import Moderator
 from app.narrator import GameEvent, Narrator, new_saga_world
 from app.plans import daily_limit, day_key, days_left, effective_plan, next_reset_at
+from app.engine.sheet import apply_origin_bonus, blank_sheet, class_id_for, migrate_legacy, recompute_pe
 from app.story import clean_line, validate_attributes
 
 USERNAME = re.compile(r"^[A-Za-z0-9_\u00C0-\u024f]{3,24}$")
@@ -108,10 +109,10 @@ def create_app(
             archetype = clean_line(body.get("arquetipo"), 40, "Arquétipo")
             concept_raw = body.get("conceito") or ""
             concept = clean_line(concept_raw, 400, "Conceito") if str(concept_raw).strip() else ""
-            attributes = validate_attributes(body.get("atributos"))
+            attributes, sheet, archetype = _build_sheet(body, origin, archetype)
         except ValueError as exc:
             return _erro(400, "ficha", str(exc))
-        character = store.create_character(user.id, name, origin, archetype, concept, attributes, clock())
+        character = store.create_character(user.id, name, origin, archetype, concept, attributes, clock(), sheet)
         return _public_character(character)
 
     @app.get("/api/personagens")
@@ -237,8 +238,37 @@ def _public_user(store: Store, settings: Settings, user, moment: int) -> dict:
     }
 
 
+def _build_sheet(body: dict, origin: str, archetype: str) -> tuple[dict, dict, str]:
+    raw = body.get("atributos") or {}
+    class_name = str(body.get("classe") or archetype)
+    class_id = class_id_for(class_name)
+    values = {name: raw.get(name) for name in ("forca", "agilidade", "vigor", "percepcao", "intelecto", "essencia")}
+    try:
+        base = {name: int(value) for name, value in values.items()}
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Atributos inválidos.") from exc
+    if all(8 <= value <= 15 for value in base.values()):
+        bonus = body.get("bonusOrigem") or {}
+        if bonus:
+            attributes = apply_origin_bonus(base, bonus)
+        else:
+            attributes = apply_origin_bonus(base, {"vigor": 2, "forca": 1})
+        sheet = blank_sheet(class_id, attributes)
+    else:
+        attributes = validate_attributes(base)
+        attributes, sheet = migrate_legacy(attributes, class_name)
+    sheet = recompute_pe(sheet, attributes)
+    sheet["classeId"] = class_id
+    if body.get("raca"):
+        sheet["racaId"] = str(body.get("raca"))
+    if body.get("via"):
+        sheet["viaId"] = str(body.get("via"))
+    return attributes, sheet, class_name
+
+
 def _public_character(character) -> dict:
-    vida_max = 16 + int(character.attributes["vigor"]) * 2
+    sheet = character.sheet or {}
+    vida_max = int(sheet.get("vidaMax") or 0) or max(1, 8 + int(character.attributes["vigor"]))
     return {
         "id": character.id,
         "nome": character.name,
@@ -248,6 +278,15 @@ def _public_character(character) -> dict:
         "atributos": character.attributes,
         "vida": vida_max,
         "vidaMax": vida_max,
+        "nivel": sheet.get("nivel") or 1,
+        "xp": sheet.get("xp") or 0,
+        "peMax": sheet.get("peMax") or 0,
+        "reserva": sheet.get("reserva") or "",
+        "classeId": sheet.get("classeId") or "",
+        "racaId": sheet.get("racaId") or "",
+        "estagio": sheet.get("estagio") or 0,
+        "pendente": bool(sheet.get("pendente")),
+        "ficha": sheet,
     }
 
 

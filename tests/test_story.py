@@ -119,8 +119,8 @@ def test_patch_de_mundo_preserva_o_que_nao_mudou():
     world = initial_world(character())
     updated = apply_patch(world, {"quando": "noite", "ganhar": ["lanterna"], "vida": 3})
     assert updated["quando"] == "noite"
-    assert "lanterna" in updated["inventario"]
-    assert updated["vida"] == 3
+    assert "lanterna" not in updated["inventario"]
+    assert updated["vida"] == world["vida"]
     assert updated["lugar"] == world["lugar"]
     assert updated["vidaMax"] == world["vidaMax"]
 

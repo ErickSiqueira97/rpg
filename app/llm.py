@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 from dataclasses import dataclass
@@ -400,8 +401,11 @@ class FakeGateway:
     def __init__(self) -> None:
         self.calls: list[tuple[str, list[dict[str, str]]]] = []
 
-    async def stream(self, route: str, messages: list[dict[str, str]]):
+    async def stream(self, route: str, messages: list[dict[str, str]], *, expect: str = "prose", temperature: float | None = None):
         self.calls.append((route, messages))
+        if expect == "json":
+            yield Piece(text=fake_intent(messages), model=f"fake-{route}")
+            return
         text = (
             "<narrativa>\nA névoa se move e a cena espera a sua próxima ação.\n</narrativa>\n"
             '<estado>\n{"beat":"A névoa se moveu.","quando":"depois"}\n</estado>'
@@ -409,8 +413,33 @@ class FakeGateway:
         yield Piece(text=text, model=f"fake-{route}")
 
 
+def fake_intent(messages: list[dict[str, str]]) -> str:
+    blob = "\n".join(item.get("content") or "" for item in messages).lower()
+    if "ataco" in blob or "ataque" in blob or "golpe" in blob:
+        teste = {"tipo": "ataque", "atributo": "forca", "pericia": "", "dificuldade": "medio", "vantagem": "nenhuma"}
+        intencao = "atacar"
+    elif "escond" in blob or "furtiv" in blob:
+        teste = {"tipo": "pericia", "atributo": "agilidade", "pericia": "furtividade", "dificuldade": "medio", "vantagem": "nenhuma"}
+        intencao = "esconder"
+    elif "persuad" in blob or "conven" in blob:
+        teste = {"tipo": "pericia", "atributo": "essencia", "pericia": "persuasao", "dificuldade": "medio", "vantagem": "nenhuma"}
+        intencao = "influenciar"
+    else:
+        teste = {"tipo": "nenhum", "atributo": "", "pericia": "", "dificuldade": "medio", "vantagem": "nenhuma"}
+        intencao = "nenhum"
+    return json.dumps(
+        {
+            "intencao": intencao,
+            "teste": teste,
+            "riscos": {"falha": "nenhum", "condicao_na_falha": None},
+            "ganchos": {"sucesso": "a cena avança", "falha": "a cena complica"},
+        },
+        ensure_ascii=False,
+    )
+
+
 class UnconfiguredGateway:
-    async def stream(self, route: str, messages: list[dict[str, str]]):
+    async def stream(self, route: str, messages: list[dict[str, str]], *, expect: str = "prose", temperature: float | None = None):
         if False:
             yield Piece()
         raise NarratorUnavailable(
@@ -473,7 +502,7 @@ class LiteLLMGateway:
         self.complete = complete or _litellm_complete
         self.pause = pause or _default_pause
 
-    async def stream(self, route: str, messages: list[dict[str, str]]):
+    async def stream(self, route: str, messages: list[dict[str, str]], *, expect: str = "prose", temperature: float | None = None):
         attempts = attempts_for(self.settings, route)
         if not attempts:
             if route == "paid":
@@ -494,7 +523,7 @@ class LiteLLMGateway:
                 break
             log.info("Narrando rota=%s provedor=%s modelo=%s", route, attempt.label, attempt.model)
             try:
-                pieces = await self._one(attempt, messages, deadline)
+                pieces = await self._one(attempt, messages, deadline, expect=expect, temperature=temperature)
             except Exception as exc:
                 last_exc = exc
                 last_attempt = attempt
@@ -523,15 +552,23 @@ class LiteLLMGateway:
             failure.transient = True
         raise failure from last_exc
 
-    async def _one(self, attempt: Attempt, messages: list[dict[str, str]], deadline: float) -> list[Piece]:
+    async def _one(
+        self,
+        attempt: Attempt,
+        messages: list[dict[str, str]],
+        deadline: float,
+        *,
+        expect: str = "prose",
+        temperature: float | None = None,
+    ) -> list[Piece]:
         last: BaseException | None = None
         for stream_try in (1, 2):
             self._ensure_budget(deadline)
             try:
                 pieces: list[Piece] = []
-                async for piece in self._stream_attempt(attempt, messages, deadline):
+                async for piece in self._stream_attempt(attempt, messages, deadline, temperature=temperature):
                     pieces.append(piece)
-                if _usable_prose(pieces):
+                if _usable(pieces, expect):
                     return pieces
                 _log_empty_prose(attempt, pieces)
                 last = TimeoutError("sem prosa")
@@ -545,14 +582,14 @@ class LiteLLMGateway:
         self._ensure_budget(deadline)
         log.warning("stream sem texto modelo=%s; tentando sem streaming", attempt.model)
         try:
-            response = await self._call(attempt, messages, stream=False, deadline=deadline)
+            response = await self._call(attempt, messages, stream=False, deadline=deadline, temperature=temperature)
         except Exception as exc:
             if last is not None and not is_transient(exc):
                 raise
             raise exc if is_transient(exc) or last is None else last
         text = message_text(response)
         piece = Piece(text=text, model=attempt.model or chunk_model(response), finish_reason=chunk_finish(response))
-        if not _usable_prose([piece]):
+        if not _usable([piece], expect):
             _log_empty_prose(attempt, [piece])
             raise TimeoutError("sem prosa")
         return [piece]
@@ -567,8 +604,8 @@ class LiteLLMGateway:
         if time.monotonic() >= deadline:
             raise TimeoutError("limite do turno")
 
-    async def _stream_attempt(self, attempt: Attempt, messages: list[dict[str, str]], deadline: float):
-        response = await self._call(attempt, messages, stream=True, deadline=deadline)
+    async def _stream_attempt(self, attempt: Attempt, messages: list[dict[str, str]], deadline: float, *, temperature: float | None = None):
+        response = await self._call(attempt, messages, stream=True, deadline=deadline, temperature=temperature)
         iterator = response.__aiter__()
         first_wait = min(self.settings.first_token_seconds, max(0.05, deadline - time.monotonic()))
         deadline_first = time.monotonic() + first_wait
@@ -616,6 +653,7 @@ class LiteLLMGateway:
         stream: bool,
         max_tokens: int | None = None,
         deadline: float | None = None,
+        temperature: float | None = None,
     ):
         timeout = self.settings.first_token_seconds if stream else self.settings.llm_timeout
         if deadline is not None:
@@ -627,7 +665,7 @@ class LiteLLMGateway:
             "stream": stream,
             "timeout": timeout,
             "stream_timeout": self.settings.first_token_seconds,
-            "temperature": self.settings.temperature,
+            "temperature": self.settings.temperature if temperature is None else temperature,
             "max_tokens": self.settings.max_output_tokens if max_tokens is None else max_tokens,
             "drop_params": True,
         }
@@ -667,6 +705,13 @@ def chunk_finish(chunk: object) -> str:
     first = choices[0]
     reason = first.get("finish_reason") if isinstance(first, dict) else getattr(first, "finish_reason", None)
     return str(reason or "")
+
+
+def _usable(pieces: list[Piece], expect: str) -> bool:
+    text = "".join(piece.text for piece in pieces)
+    if expect == "json":
+        return "intencao" in text and "{" in text
+    return _usable_prose(pieces)
 
 
 def _usable_prose(pieces: list[Piece]) -> bool:
