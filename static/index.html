@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RPG Multiverso</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <p id="status" role="status"></p>
+
+  <section id="auth">
+    <h1>RPG Multiverso</h1>
+    <h2>Entrar</h2>
+    <form id="auth-form">
+      <label for="usuario">Usuário</label>
+      <input id="usuario" name="usuario" required minlength="3" maxlength="24" autocomplete="username" autocapitalize="none" spellcheck="false">
+      <label for="senha">Senha</label>
+      <input id="senha" name="senha" type="password" required minlength="6" maxlength="72" autocomplete="current-password">
+      <button type="submit">Entrar</button>
+      <button type="button" id="cadastrar">Cadastrar</button>
+    </form>
+  </section>
+
+  <section id="lobby" hidden>
+    <header class="topo">
+      <h1>RPG Multiverso</h1>
+      <p id="meta"></p>
+      <button type="button" id="sair">Sair</button>
+      <a href="/changelog">Changelog</a>
+    </header>
+    <h2>Seus personagens</h2>
+    <div id="personagens" class="cards"></div>
+    <p><button type="button" id="abrir-ficha">Novo personagem</button></p>
+    <h2>Treino e arena</h2>
+    <p>
+      <label for="treino-personagem">Personagem</label>
+      <select id="treino-personagem"></select>
+      <label for="treino-nivel">Nível</label>
+      <select id="treino-nivel">
+        <option value="5">5</option>
+        <option value="11">11</option>
+        <option value="17">17</option>
+      </select>
+      <label for="treino-dif">Dificuldade</label>
+      <select id="treino-dif">
+        <option value="aprendiz">Aprendiz</option>
+        <option value="padrao" selected>Padrão</option>
+        <option value="mestre">Mestre</option>
+      </select>
+      <label for="treino-tipo">Oponente</label>
+      <select id="treino-tipo">
+        <option value="espelho">Espelho</option>
+        <option value="tanque">Tanque</option>
+        <option value="dano">Dano</option>
+        <option value="controle">Controle</option>
+        <option value="conjurador">Conjurador</option>
+        <option value="transformador">Transformador</option>
+      </select>
+      <button type="button" id="treinar">Treinar</button>
+      <button type="button" id="arena">Arena</button>
+    </p>
+    <pre id="treino-log" aria-live="polite"></pre>
+    <h2>Suas aventuras</h2>
+    <div id="aventuras" class="cards"></div>
+    <details id="vazias">
+      <summary>Missões vazias</summary>
+      <div id="aventuras-vazias" class="cards"></div>
+    </details>
+  </section>
+
+  <dialog id="ficha-dialog" aria-labelledby="ficha-titulo">
+    <form id="ficha">
+      <h2 id="ficha-titulo">Novo personagem</h2>
+      <label for="quero-texto">Quero ser tal personagem</label>
+      <input id="quero-texto" maxlength="120" autocomplete="off" placeholder="Descreva o herói, sem precisar do nome">
+      <button type="button" id="quero">Sugerir ficha</button>
+      <p id="quero-resultado"></p>
+      <div id="arquetipo-opcoes" class="arquetipo-opcoes" hidden></div>
+      <button type="button" id="nao-e-isso" hidden>Não é isso</button>
+      <label for="nome">Nome</label>
+      <input id="nome" name="nome" required maxlength="40" autocomplete="off">
+      <label for="raca">Raça</label>
+      <select id="raca" name="raca"></select>
+      <label for="variante">Variante</label>
+      <select id="variante" name="variante"></select>
+      <label for="origem-id">Origem</label>
+      <select id="origem-id" name="origemId"></select>
+      <input id="origem" name="origem" required maxlength="80" value="Mercenário" class="visually-hidden" tabindex="-1" aria-hidden="true">
+      <label for="classe">Classe</label>
+      <select id="classe" name="classe"></select>
+      <label for="subclasse">Subclasse</label>
+      <select id="subclasse" name="subclasse"></select>
+      <label for="via">Via</label>
+      <select id="via" name="via"></select>
+      <p id="via-dica"></p>
+      <label for="traco">Traço de Destino</label>
+      <select id="traco" name="traco"></select>
+      <label for="conceito">Conceito</label>
+      <textarea id="conceito" name="conceito" maxlength="400"></textarea>
+      <fieldset>
+        <legend>Atributos</legend>
+        <p id="pontos">Pontos usados: 27 / 27</p>
+        <p id="bonus-origem">Bônus da origem: +2 e +1</p>
+        <div class="atributo"><span id="rotulo-forca">Força</span><button type="button" data-step="forca" data-dir="-1" aria-label="Diminuir Força">−</button><input id="forca" data-attr type="number" min="8" max="15" value="15" aria-labelledby="rotulo-forca"><button type="button" data-step="forca" data-dir="1" aria-label="Aumentar Força">+</button><button type="button" data-bonus="forca">+2</button></div>
+        <div class="atributo"><span id="rotulo-agilidade">Agilidade</span><button type="button" data-step="agilidade" data-dir="-1" aria-label="Diminuir Agilidade">−</button><input id="agilidade" data-attr type="number" min="8" max="15" value="14" aria-labelledby="rotulo-agilidade"><button type="button" data-step="agilidade" data-dir="1" aria-label="Aumentar Agilidade">+</button><button type="button" data-bonus="agilidade">+1</button></div>
+        <div class="atributo"><span id="rotulo-vigor">Vigor</span><button type="button" data-step="vigor" data-dir="-1" aria-label="Diminuir Vigor">−</button><input id="vigor" data-attr type="number" min="8" max="15" value="13" aria-labelledby="rotulo-vigor"><button type="button" data-step="vigor" data-dir="1" aria-label="Aumentar Vigor">+</button><button type="button" data-bonus="vigor">+0</button></div>
+        <div class="atributo"><span id="rotulo-percepcao">Percepção</span><button type="button" data-step="percepcao" data-dir="-1" aria-label="Diminuir Percepção">−</button><input id="percepcao" data-attr type="number" min="8" max="15" value="12" aria-labelledby="rotulo-percepcao"><button type="button" data-step="percepcao" data-dir="1" aria-label="Aumentar Percepção">+</button><button type="button" data-bonus="percepcao">+0</button></div>
+        <div class="atributo"><span id="rotulo-intelecto">Intelecto</span><button type="button" data-step="intelecto" data-dir="-1" aria-label="Diminuir Intelecto">−</button><input id="intelecto" data-attr type="number" min="8" max="15" value="10" aria-labelledby="rotulo-intelecto"><button type="button" data-step="intelecto" data-dir="1" aria-label="Aumentar Intelecto">+</button><button type="button" data-bonus="intelecto">+0</button></div>
+        <div class="atributo"><span id="rotulo-essencia">Essência</span><button type="button" data-step="essencia" data-dir="-1" aria-label="Diminuir Essência">−</button><input id="essencia" data-attr type="number" min="8" max="15" value="8" aria-labelledby="rotulo-essencia"><button type="button" data-step="essencia" data-dir="1" aria-label="Aumentar Essência">+</button><button type="button" data-bonus="essencia">+0</button></div>
+      </fieldset>
+      <button type="submit">Criar ficha</button>
+      <button type="button" id="fechar-ficha">Cancelar</button>
+    </form>
+  </dialog>
+
+  <section id="jogo" hidden>
+    <header class="topo">
+      <button type="button" id="inicio">Início</button>
+      <h1 id="saga-titulo">Crônica</h1>
+      <p id="meta-jogo"></p>
+    </header>
+    <div class="mesa">
+      <div class="coluna-log">
+        <h2 class="visually-hidden">Narração</h2>
+        <div id="log" tabindex="-1"></div>
+        <form id="acao">
+          <label for="texto">Sua ação</label>
+          <textarea id="texto" name="texto" maxlength="1500"></textarea>
+          <button type="submit">Enviar</button>
+          <button type="button" id="comecar">Começar de novo</button>
+        </form>
+      </div>
+      <div class="coluna-painel">
+        <div role="tablist" aria-label="Informações da mesa">
+          <button type="button" role="tab" id="tab-missao" aria-controls="painel-missao" aria-selected="true">Missão</button>
+          <button type="button" role="tab" id="tab-ficha" aria-controls="painel-ficha" aria-selected="false">Ficha</button>
+          <button type="button" role="tab" id="tab-inventario" aria-controls="painel-inventario" aria-selected="false">Inventário</button>
+          <button type="button" role="tab" id="tab-diario" aria-controls="painel-diario" aria-selected="false">Diário</button>
+        </div>
+        <div role="tabpanel" id="painel-missao" aria-labelledby="tab-missao">
+          <p id="objetivo"></p>
+          <p id="mundo"></p>
+          <h3>Loja</h3>
+          <label for="loja-item">Item</label>
+          <select id="loja-item">
+            <option value="pocao_cura">Poção de Cura (50)</option>
+            <option value="pocao_maior">Poção de Cura Maior (200)</option>
+            <option value="tonico">Tônico Instável (50)</option>
+            <option value="elixir_furia">Elixir de Fúria (80)</option>
+            <option value="casa">Casa, descanso seguro (100)</option>
+          </select>
+          <button type="button" id="comprar">Comprar</button>
+          <h3>NPCs</h3>
+          <ul id="npcs"></ul>
+        </div>
+        <div role="tabpanel" id="painel-ficha" aria-labelledby="tab-ficha" hidden>
+          <p id="ficha-resumo"></p>
+          <p id="ficha-extra"></p>
+          <p>
+            <label for="asi" id="asi-rotulo" hidden>Atributo da melhoria</label>
+            <select id="asi" hidden>
+              <option value="forca">Força</option>
+              <option value="agilidade">Agilidade</option>
+              <option value="vigor">Vigor</option>
+              <option value="percepcao">Percepção</option>
+              <option value="intelecto">Intelecto</option>
+              <option value="essencia">Essência</option>
+            </select>
+            <button type="button" id="subir" hidden>Subir de nível (+2)</button>
+            <button type="button" id="rito" hidden>Cumprir rito de estágio</button>
+          </p>
+          <p id="vida-rotulo"></p>
+          <div class="barra" aria-hidden="true"><span id="vida-barra"></span></div>
+          <ul id="atributos-lista"></ul>
+        </div>
+        <div role="tabpanel" id="painel-inventario" aria-labelledby="tab-inventario" hidden>
+          <ul id="inventario"></ul>
+          <p id="inventario-vazio">Nenhum item por enquanto.</p>
+        </div>
+        <div role="tabpanel" id="painel-diario" aria-labelledby="tab-diario" hidden>
+          <ul id="diario"></ul>
+          <p id="diario-vazio">O diário ainda está em branco.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+  <footer>
+    <p>Regras traduzidas e adaptadas. This work includes material from the System Reference Document 5.2 (“SRD 5.2”) by Wizards of the Coast LLC, available at https://www.dndbeyond.com/srd. The SRD 5.2 is licensed under the Creative Commons Attribution 4.0 International License, available at https://creativecommons.org/licenses/by/4.0/legalcode.</p>
+  </footer>
+  <script src="/static/app.js"></script>
+</body>
+</html>
