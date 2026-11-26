@@ -262,8 +262,68 @@ async def test_resposta_so_com_estado_e_transitória_e_cai_no_proximo(caplog):
     pieces = [piece async for piece in gateway.stream("free", [{"role": "user", "content": "oi"}])]
     assert "Cena pronta" in "".join(piece.text for piece in pieces)
     assert any(model != DEFAULT_GEMINI_MODEL for model, _stream in calls)
-    assert "narrador sem prosa" in caplog.text
+    assert "narrador resposta inutilizavel" in caplog.text
     assert "finish_reason=stop" in caplog.text or "finish_reason=length" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_json_vazio_com_stop_tenta_modelo_fallback_e_define_response_format():
+    settings = Settings(
+        gemini_api_key="gemini-secret",
+        gemini_fallback_model="gemini-3.1-flash-lite",
+        turn_budget_seconds=5,
+    )
+    spec = build_spec(settings)
+    calls = []
+
+    async def complete(**kwargs):
+        calls.append(kwargs)
+        assert kwargs["response_format"] == {"type": "json_object"}
+        assert kwargs["max_tokens"] >= 1024
+        if kwargs["model"] == DEFAULT_GEMINI_MODEL:
+            if kwargs["stream"]:
+                async def empty():
+                    yield SimpleNamespace(
+                        choices=[SimpleNamespace(delta=SimpleNamespace(content=""), finish_reason="stop")],
+                        model=kwargs["model"],
+                        usage=None,
+                    )
+
+                return empty()
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content=""), finish_reason="stop")],
+                model=kwargs["model"],
+            )
+        if kwargs["stream"]:
+            async def valid():
+                yield SimpleNamespace(
+                    choices=[
+                        SimpleNamespace(
+                            delta=SimpleNamespace(
+                                content='{"arquetipo_id":"lutador_aura","confianca":0.9,"motivo":"aura"}'
+                            ),
+                            finish_reason="stop",
+                        )
+                    ],
+                    model=kwargs["model"],
+                    usage=None,
+                )
+
+            return valid()
+        raise AssertionError("o JSON do fallback deveria ser válido")
+
+    async def nop(_remaining):
+        return
+
+    gateway = LiteLLMGateway(spec, settings, complete=complete, pause=nop)
+    pieces = [
+        piece
+        async for piece in gateway.stream(
+            "free", [{"role": "user", "content": "lutador de aura"}], expect="json"
+        )
+    ]
+    assert "lutador_aura" in "".join(piece.text for piece in pieces)
+    assert any(call["model"] == "gemini/gemini-3.1-flash-lite" for call in calls)
 
 
 def test_classifica_falha_do_provedor():

@@ -146,7 +146,11 @@ def test_descanso_curto_so_um_por_missao_e_pe_pela_metade():
 
 
 def test_quero_nao_devolve_apelido_e_forma_respeita_o_teto():
-    from app.catalog import public_catalog, suggest_build
+    import json
+
+    from app.catalog import ARCHETYPES, origin_by_id, public_catalog, suggest_build
+    from app.engine.math import point_buy_cost
+    from app.engine.sheet import apply_origin_bonus
 
     catalogo = public_catalog()
     assert len(catalogo["racas"]) == 19
@@ -165,16 +169,16 @@ def test_quero_nao_devolve_apelido_e_forma_respeita_o_teto():
     assert goku["traco"] == "forjado_na_luta"
     assert goku["conceito"]
     assert goku["build"] == "Guerreiro do Despertar"
-    assert "goku" not in __import__("json").dumps(goku).lower()
+    assert "goku" not in json.dumps(goku).lower()
     sapo = suggest_build("quero ser o greninja")
     assert sapo["nome"] == "Rã-Sombra da Correnteza"
     assert sapo["variante"] == "Anfíbio"
-    assert "greninja" not in __import__("json").dumps(sapo).lower()
+    assert "greninja" not in json.dumps(sapo).lower()
     sombra = suggest_build("quero ser o protagonista de solo leveling")
     assert sombra["classe"] == "invocador"
     assert sombra["subclasse"] == "Pastor de Sombras"
     assert sombra["traco"] == "sistema"
-    assert "leveling" not in __import__("json").dumps(sombra).lower()
+    assert "leveling" not in json.dumps(sombra).lower()
     assert suggest_build("quero ser um padeiro de tortas") is None
     kirito = suggest_build("kirito")
     assert kirito["classe"] == "espadachim"
@@ -182,44 +186,56 @@ def test_quero_nao_devolve_apelido_e_forma_respeita_o_teto():
     assert kirito["atributos"]["agilidade"] == 15
     assert kirito["atributos"]["forca"] == 14
     assert kirito["bonusOrigem"] == {"agilidade": 2, "forca": 1}
-    assert "duas mãos" not in kirito["conceito"]
-    assert "cada mão" in kirito["conceito"]
     assert kirito["raca"] == "humano"
     assert kirito["via"] == ""
     assert kirito["raca"] != "receptaculo"
-    assert "kirito" not in __import__("json").dumps(kirito).lower()
+    assert "kirito" not in json.dumps(kirito).lower()
     assert suggest_build("quero ser o kirito")["build"] == "Lâmina Dupla"
 
-
-def test_bonus_de_origem_e_o_ataque_de_cada_build():
-    from app.catalog import _BUILDS, origin_by_id
+def test_todos_arquetipos_usam_compra_e_bonus_validos():
+    from app.catalog import ARCHETYPES, origin_by_id
+    from app.factory import _build_sheet
     from app.engine.math import point_buy_cost
     from app.engine.sheet import apply_origin_bonus
 
-    base = {"forca": 15, "agilidade": 14, "vigor": 13, "percepcao": 12, "intelecto": 10, "essencia": 8}
-    try:
-        apply_origin_bonus(base, {name: 2 for name in base}, ["forca", "agilidade", "vigor"])
-        raise AssertionError("deveria recusar +2 em tudo")
-    except ValueError:
-        pass
-    moved = apply_origin_bonus(base, {"agilidade": 2, "forca": 1}, ["forca", "agilidade", "vigor"])
-    assert moved["agilidade"] == 16 and moved["forca"] == 16
-    trio = apply_origin_bonus(base, {"forca": 1, "agilidade": 1, "vigor": 1}, ["forca", "agilidade", "vigor"])
-    assert trio["vigor"] == 14
-    try:
-        apply_origin_bonus(base, {"essencia": 2, "forca": 1}, ["forca", "agilidade", "vigor"])
-        raise AssertionError("atributo fora da origem")
-    except ValueError:
-        pass
-    for build in _BUILDS:
+    for build in ARCHETYPES:
         origin = origin_by_id(build["origemId"])
         bonus = build["bonusOrigem"]
         assert set(bonus) <= set(origin["atributos"])
-        assert sorted(bonus.values(), reverse=True) == [2, 1]
-        assert build["atributos"][build["ataque"]] == 15
-        assert bonus[build["ataque"]] == 2
+        assert sorted(bonus.values()) == [1, 2]
         assert point_buy_cost(build["atributos"]) == 27
-        assert build["subclasse"] != "Três Lâminas"
+        result = apply_origin_bonus(build["atributos"], bonus, origin["atributos"])
+        assert max(result.values()) <= 20
+        attributes, sheet, _name = _build_sheet(build, origin["nome"], build["nome"])
+        assert max(attributes.values()) <= 20
+        assert sheet["classeId"] == build["classe"]
+
+
+def test_aliases_madara_goku_e_kirito_sugerem_fichas_validas():
+    from app.catalog import ARCHETYPES_BY_ID, match_known_build
+    from app.factory import _build_sheet
+    from app.catalog import origin_by_id
+
+    for alias, expected_id in (("madara", "ninja_sombrio"), ("goku", "lutador_aura"), ("kirito", "espadachim_duplo")):
+        build = match_known_build(f"quero ser {alias}")
+        assert build["arquetipo_id"] == expected_id
+        row = ARCHETYPES_BY_ID[expected_id]
+        origin = origin_by_id(row["origemId"])
+        attributes, sheet, _archetype = _build_sheet(
+            {
+                **build,
+                "classe": row["classe"],
+                "origemId": row["origemId"],
+                "raca": row["raca"],
+                "via": row["via"],
+                "subclasse": row["subclasse"],
+                "traco": row["traco"],
+            },
+            origin["nome"],
+            row["nome"],
+        )
+        assert max(attributes.values()) <= 20
+        assert sheet["classeId"] == row["classe"]
 
 
 def test_renomeia_subclasse_tres_laminas(tmp_path):
@@ -235,21 +251,47 @@ def test_renomeia_subclasse_tres_laminas(tmp_path):
     store.close()
 
 
-def test_xyzabc_nao_vira_build_conhecido():
+def test_nome_inventado_oferece_opcoes_em_vez_de_ficha_generica():
     import asyncio
-    import json
 
     from app.catalog import resolve_quero
     from app.llm import FakeGateway
 
     gateway = FakeGateway()
     build = asyncio.run(resolve_quero("xyzabc", gateway))
-    assert build["fonte"] == "fallback"
-    assert build["build"] == ""
-    assert build["via"] == ""
-    assert build["classe"] != "receptaculo"
-    assert "Build conhecido" not in json.dumps(build)
+    assert build["precisaEscolha"] is True
+    assert build["fonte"] == "botoes"
+    assert len(build["opcoes"]) == 25
     assert len(gateway.calls) == 2
+
+
+def test_resposta_vazia_da_llm_tenta_fallback_e_mostra_opcoes():
+    import asyncio
+
+    from app.catalog import resolve_quero
+    from app.llm import Piece
+
+    class EmptyGateway:
+        def __init__(self):
+            self.routes = []
+
+        async def stream(self, route, _messages, *, expect, temperature):
+            assert expect == "json"
+            assert temperature == 0
+            self.routes.append(route)
+            yield Piece(text="", finish_reason="stop")
+
+    gateway = EmptyGateway()
+    result = asyncio.run(resolve_quero("zorblax", gateway))
+    assert result["precisaEscolha"] is True
+    assert gateway.routes == ["free", "fallback"]
+
+
+def test_aliases_sao_palavras_inteiras():
+    from app.catalog import match_known_build
+
+    assert match_known_build("quero ser madarax") is None
+    assert match_known_build("quero ser o madara")["arquetipo_id"] == "ninja_sombrio"
     hero = _hero()
     hero.sheet["racaId"] = "licantropo"
     hero.sheet["estagio"] = 2

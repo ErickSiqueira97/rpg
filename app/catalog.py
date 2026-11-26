@@ -6,10 +6,11 @@ import json
 import logging
 import re
 import unicodedata
+from pathlib import Path
 
 log = logging.getLogger("uvicorn.error")
 
-from app.engine.sheet import CLASSES as CLASS_STATS
+from app.engine.sheet import CLASSES as CLASS_STATS, apply_origin_bonus
 
 RACES = [
     {"id": "humano", "nome": "Humano", "papel": "Qualquer", "texto": "Inspiração Heroica a cada descanso longo, +1 perícia e um talento de origem.", "fraqueza": "Sem visão no escuro."},
@@ -85,6 +86,7 @@ SUBCLASSES = {
     "cozinheiro_de_batalha": ["Caçador de Ingredientes", "Chef de Campanha", "Lâminas de Cozinha"],
     "artifice": ["Armadura Motorizada", "Pistoleiro", "Construtor de Autômatos"],
 }
+SUBCLASS_RENAME = {"Três Lâminas": "Múltiplas Lâminas", "Tres Laminas": "Múltiplas Lâminas"}
 
 TRAITS = [
     {"id": "forjado_na_luta", "nome": "Forjado na Luta", "beneficio": "+1 no próximo ataque ou salvaguarda depois de falhar, até +3.", "custo": "Começa sem laços.", "efeito_motor": {"acumulo_falha_max": 3}},
@@ -125,40 +127,6 @@ for _race in RACES:
     _race["efeito_motor"] = RACE_EFFECTS.get(_race["id"], {})
 
 # Apelidos só casam o pedido. Nenhum deles é copiado para nome, conceito ou ficha.
-_BUILDS = [
-    {"id": "ascendente_solitario", "nome": "Ascendente Solitário", "raca": "humano", "variante": "", "classe": "invocador", "subclasse": "Pastor de Sombras", "origemId": "cacador_de_portais", "via": "grimorio", "traco": "sistema", "conceito": "Caçador que sobe sozinho. Ergues sombras de quem derrota e cumpre a tarefa que o próprio corpo impõe.", "aliases": ["solo leveling", "protagonista de solo leveling", "monarca das sombras", "shadow monarch", "sung jinwoo", "jinwoo", "cacador de sombras", "necromante", "necromancer"]},
-    {"id": "ra_sombra", "nome": "Rã-Sombra da Correnteza", "raca": "feral", "variante": "Anfíbio", "classe": "sombra", "subclasse": "Mestre dos Selos", "origemId": "aprendiz_de_cla", "via": "folego_interior", "traco": "forjado_na_luta", "conceito": "Anfíbio de um clã das sombras. Luta com selos de água, cópias ilusórias e um passo que some na correnteza.", "aliases": ["greninja", "frog ninja", "sapo ninja", "ninja sapo", "anfibio ninja", "ra de sombra"]},
-    {"id": "rei_faminto", "nome": "Receptáculo do Rei Faminto", "raca": "receptaculo", "variante": "", "classe": "exorcista", "subclasse": "Hospedeiro", "origemId": "estudante_de_exorcismo", "via": "rancor", "traco": "divida_com_fera", "conceito": "Estudante que carrega um rei faminto. A troca com o hóspede aumenta o golpe e cobra o corpo depois.", "aliases": ["sukuna", "ryomen", "rei faminto", "rei das maldicoes"]},
-    {"id": "punho_exorcista", "nome": "Punho Exorcista", "raca": "humano", "variante": "", "classe": "punho_de_aura", "subclasse": "Palma Aberta", "origemId": "estudante_de_exorcismo", "via": "rancor", "traco": "forjado_na_luta", "conceito": "Estudante que soca maldições de perto. O corpo aguenta o que a energia negativa devolve.", "aliases": ["yuji", "itadori", "punho exorcista"]},
-    {"id": "olhar_infinito", "nome": "Olhar do Infinito", "raca": "humano", "variante": "", "classe": "desperto", "subclasse": "Dom Singular", "origemId": "nobre_decadente", "via": "grimorio", "traco": "olhos_raros", "conceito": "Herdeiro de um olhar que vê o que os outros não veem e ergue uma barreira entre si e o golpe.", "aliases": ["gojo", "satoru", "olhar do infinito", "seis olhos", "barreira infinita"]},
-    {"id": "fera_selada", "nome": "Herdeiro da Fera Selada", "raca": "receptaculo", "variante": "", "classe": "sombra", "subclasse": "Mestre dos Selos", "origemId": "orfao_de_guerra", "via": "folego_interior", "traco": "forjado_na_luta", "conceito": "Órfão de um clã de selos. Uma fera dorme no corpo e os sinais de mão chamam cópias e vento.", "aliases": ["naruto", "uzumaki", "ninja", "fera selada", "selos de mao", "orfao ninja"]},
-    {"id": "guerreiro_despertar", "nome": "Guerreiro do Despertar", "raca": "estelar", "variante": "", "classe": "punho_de_aura", "subclasse": "Ascensão", "origemId": "discipulo_de_eremita", "via": "aura", "traco": "forjado_na_luta", "conceito": "Guerreiro vindo de outro mundo. Treina com um eremita e desperta o corpo em estágios, cada limite rompido mais alto que o anterior.", "aliases": ["goku", "kakaroto", "kakarotto", "saiyajin", "sayajin", "saiyan", "ki fighter", "lutador de ki", "artista marcial de ki", "dragon ball", "artista marcial", "guerreiro do despertar"]},
-    {"id": "punho_elastico", "nome": "Punho Elástico", "raca": "humano", "variante": "", "classe": "punho_de_aura", "subclasse": "Palma Aberta", "origemId": "marujo_errante", "via": "aura", "traco": "dom_singular", "conceito": "Marujo cujo corpo estica o golpe até três metros. O mesmo dom o impede de nadar.", "aliases": ["luffy", "punho elastico", "corpo de borracha", "corpo elastico"]},
-    {"id": "lamina_tripla", "nome": "Lâmina Tripla", "raca": "humano", "variante": "", "classe": "espadachim", "subclasse": "Múltiplas Lâminas", "origemId": "mercenario", "via": "", "traco": "forjado_na_luta", "conceito": "Mercenário que luta com três lâminas ao mesmo tempo e transforma o estilo num ritmo de golpes.", "aliases": ["zoro", "roronoa", "tres laminas", "tres espadas", "swordsman", "espadachim de tres laminas"]},
-    {"id": "lamina_dupla", "nome": "Lâmina Dupla", "raca": "humano", "variante": "", "classe": "espadachim", "subclasse": "Múltiplas Lâminas", "origemId": "mercenario", "via": "", "traco": "forjado_na_luta", "conceito": "Espadachim que empunha uma lâmina em cada mão. Dois cortes leves no mesmo tempo, no ritmo de quem luta sozinho.", "aliases": ["kirito", "kirigaya", "duas espadas", "duas laminas", "dual wield", "espadachim de duas espadas", "espadachim"], "viaSugerida": "folego_interior"},
-    {"id": "portador_colosso", "nome": "Portador do Colosso", "raca": "sangue_de_colosso", "variante": "", "classe": "cacador", "subclasse": "Batedor da Muralha", "origemId": "cadete_da_muralha", "via": "sangue", "traco": "forjado_na_luta", "conceito": "Cadete da muralha que herda um corpo capaz de crescer até a forma colossal.", "aliases": ["eren", "yeager", "jaeger", "portador do colosso", "titã", "tita", "attack on titan"]},
-    {"id": "antidom", "nome": "Antidom", "raca": "humano", "variante": "", "classe": "espadachim", "subclasse": "Lâmina Campeã", "origemId": "orfao_de_guerra", "via": "", "traco": "nulo", "conceito": "Órfão cuja lâmina anula técnicas. Não usa Vias: o aço é o bastante.", "aliases": ["asta", "antimagia", "antidom", "anula magia", "nulo"]},
-    {"id": "grimorista_vento", "nome": "Grimorista do Vento", "raca": "longevo", "variante": "", "classe": "grimorista", "subclasse": "Afinidade Elemental", "origemId": "orfao_de_guerra", "via": "grimorio", "traco": "olhos_raros", "conceito": "Leitor de um grimório de vento. A página escolhe o elemento e o livro guarda o que a memória não segura.", "aliases": ["yuno", "grimorista de vento", "mago de vento", "sorcerer", "feiticeiro", "mago"]},
-    {"id": "alquimista_aco", "nome": "Alquimista de Aço", "raca": "humano", "variante": "", "classe": "alquimista", "subclasse": "Alquimista de Combate", "origemId": "orfao_de_guerra", "via": "transmutacao", "traco": "membro_de_aco", "conceito": "Alquimista de troca equivalente. Uma prótese de aço bate como arma e trava quando o círculo falha.", "aliases": ["edward elric", "elric", "fullmetal", "alquimista", "alchemist", "protese", "membro de aco"]},
-    {"id": "lamina_mare", "nome": "Lâmina da Maré", "raca": "humano", "variante": "", "classe": "espadachim", "subclasse": "Cadências Elementais", "origemId": "orfao_de_guerra", "via": "folego_interior", "traco": "faro_apurado", "conceito": "Espadachim de uma cadência de água. O faro acha o rasto e a lâmina segue a maré.", "aliases": ["tanjiro", "kamado", "lamina da mare", "cadencia da agua", "respiracao da agua"]},
-    {"id": "herdeiro_dom", "nome": "Herdeiro do Dom", "raca": "humano", "variante": "", "classe": "punho_de_aura", "subclasse": "Ascensão", "origemId": "aspirante_a_heroi", "via": "aura", "traco": "dom_singular", "conceito": "Aspirante que herdou um poder grande demais para o corpo. Cada despertar cobra um recuo em dor.", "aliases": ["deku", "midoriya", "izuku", "herdeiro do dom", "one for all"]},
-    {"id": "menino_floresta", "nome": "Menino da Floresta", "raca": "humano", "variante": "", "classe": "punho_de_aura", "subclasse": "Palma Aberta", "origemId": "candidato_do_exame", "via": "aura", "traco": "faro_apurado", "conceito": "Menino da mata que presta um exame de caçadores e solta a aura em rajadas curtas.", "aliases": ["gon freecss", "gon", "menino da floresta", "exame de cacador"]},
-    {"id": "herdeiro_raio", "nome": "Herdeiro do Raio", "raca": "humano", "variante": "", "classe": "sombra", "subclasse": "Lâmina Silenciosa", "origemId": "herdeiro_de_cla_assassino", "via": "aura", "traco": "forjado_na_luta", "conceito": "Herdeiro de um clã assassino. O golpe oculto vem com um estalo de raio e some antes do grito.", "aliases": ["killua", "zoldyck", "herdeiro do raio", "cla assassino"]},
-    {"id": "coracao_serra", "nome": "Coração-Serra", "raca": "receptaculo", "variante": "", "classe": "furioso", "subclasse": "Corpo-Arma", "origemId": "orfao_de_guerra", "via": "sangue", "traco": "divida_com_fera", "conceito": "Órfão que deve a vida a uma fera-máquina. Lâminas brotam do corpo quando a fúria abre.", "aliases": ["denji", "chainsaw", "coracao serra", "serra humana"]},
-    {"id": "espadachim_negro", "nome": "Espadachim Negro", "raca": "humano", "variante": "", "classe": "furioso", "subclasse": "Caminho do Furioso", "origemId": "mercenario", "via": "", "traco": "marca_do_sacrificio", "conceito": "Mercenário de montante marcado. À noite, o que não é deste mundo vem atrás da marca.", "aliases": ["guts", "berserk", "espadachim negro", "marca do sacrificio"]},
-    {"id": "guardiao_almas", "nome": "Guardião de Almas", "raca": "humano", "variante": "", "classe": "espadachim", "subclasse": "Cadências Elementais", "origemId": "aspirante_a_heroi", "via": "rancor", "traco": "olhos_raros", "conceito": "Guardião cuja lâmina se libera. O corte carrega o rancor dos que ficaram do outro lado.", "aliases": ["ichigo", "bleach", "guardiao de almas", "lamina que se libera"]},
-    {"id": "cacador_mutante", "nome": "Caçador Mutante", "raca": "humano", "variante": "", "classe": "cacador", "subclasse": "Caçador da Noite", "origemId": "discipulo_de_escola_de_caca", "via": "engenho", "traco": "mutagenico", "conceito": "Caçador de uma escola antiga. Óleos, sinais e um corpo mudado pelo veneno que aprendeu a beber.", "aliases": ["geralt", "witcher", "bruxo de rivia", "cacador mutante"]},
-    {"id": "senhor_noite", "nome": "Senhor da Noite", "raca": "noturno", "variante": "", "classe": "exorcista", "subclasse": "Pacto Abissal", "origemId": "nobre_decadente", "via": "rancor", "traco": "divida_com_fera", "conceito": "Nobre da noite. A mordida devolve vida e o sol cobra cada passo dado fora da sombra.", "aliases": ["dracula", "alucard", "vampiro", "vampire", "senhor da noite"]},
-    {"id": "vigia_cacada", "nome": "Vigia da Caçada", "raca": "humano", "variante": "", "classe": "sentinela", "subclasse": "Juramento da Caçada Noturna", "origemId": "novico_do_templo", "via": "fe", "traco": "forjado_na_luta", "conceito": "Noviço que jurou caçar mortos-vivos. A fé vira luz radiante quando a noite chega.", "aliases": ["van helsing", "helsing", "belmont", "cacador de vampiros", "vigia da cacada"]},
-    {"id": "pele_lua", "nome": "Pele de Lua", "raca": "licantropo", "variante": "", "classe": "furioso", "subclasse": "Fera Interior", "origemId": "paria_da_floresta", "via": "sangue", "traco": "forjado_na_luta", "conceito": "Pária da mata. A lua puxa a forma lupina e a fúria mora no mesmo peito.", "aliases": ["lobisomem", "werewolf", "lycan", "pele de lua", "licantropo"]},
-    {"id": "estrela_caida", "nome": "Estrela Caída", "raca": "estelar", "variante": "", "classe": "sentinela", "subclasse": "Juramento do Escudo", "origemId": "criado_no_campo", "via": "fe", "traco": "forjado_na_luta", "conceito": "Forasteiro criado no campo. O corpo aguenta o que derrubaria outros e o juramento é pôr-se na frente.", "aliases": ["superman", "clark kent", "estrela caida"]},
-    {"id": "vigilante_noite", "nome": "Vigilante da Noite", "raca": "humano", "variante": "", "classe": "sombra", "subclasse": "Lâmina Silenciosa", "origemId": "herdeiro_rico", "via": "engenho", "traco": "forjado_na_luta", "conceito": "Herdeiro rico que desce à noite com engenhos e uma lâmina curta. A fortuna fica no enredo, não no poder.", "aliases": ["batman", "bruce wayne", "vigilante da noite", "vigilante rico"]},
-    {"id": "saltador_teias", "nome": "Saltador de Teias", "raca": "feral", "variante": "Aracnídeo", "classe": "punho_de_aura", "subclasse": "Palma Aberta", "origemId": "aspirante_a_heroi", "via": "aura", "traco": "olhos_raros", "conceito": "Aspirante de sangue aracnídeo. Escala paredes, sente o perigo e luta de punhos no alto da rua.", "aliases": ["homem aranha", "spider", "peter parker", "saltador de teias", "aranha"]},
-    {"id": "couraca_fogo", "nome": "Couraça de Fogo", "raca": "humano", "variante": "", "classe": "artifice", "subclasse": "Armadura Motorizada", "origemId": "herdeiro_rico", "via": "engenho", "traco": "membro_de_aco", "conceito": "Inventor rico dentro de uma couraça. O engenho dispara e a armadura é o corpo extra.", "aliases": ["homem de ferro", "iron man", "tony stark", "couraca de fogo", "armadura motorizada"]},
-    {"id": "gourmet", "nome": "Gourmet Caçador", "raca": "humano", "variante": "", "classe": "cozinheiro_de_batalha", "subclasse": "Caçador de Ingredientes", "origemId": "aprendiz_de_cozinha", "via": "culinaria", "traco": "faro_apurado", "conceito": "Aprendiz de cozinha que caça o ingrediente e serve o banquete antes da luta.", "aliases": ["toriko", "soma", "gourmet", "cozinheiro", "chef"]},
-    {"id": "invocador_feras", "nome": "Pastor de Feras", "raca": "humano", "variante": "", "classe": "invocador", "subclasse": "Domador de Feras", "origemId": "paria_da_floresta", "via": "grimorio", "traco": "faro_apurado", "conceito": "Invocador que chama feras para lutar ao lado. O vínculo é o poder, não o golpe próprio.", "aliases": ["summoner", "invocador", "domador de feras"]},
-]
-
 STAGE_LEVELS = (5, 11, 17)
 
 PE_COST = {1: 2, 2: 3, 3: 5, 4: 6, 5: 7}
@@ -216,6 +184,14 @@ def origin_by_id(origin_id: str) -> dict | None:
     return next((item for item in ORIGINS if item["id"] == origin_id), None)
 
 
+def rename_subclass(sheet: dict) -> bool:
+    renamed = SUBCLASS_RENAME.get(sheet.get("subclasse"))
+    if not renamed:
+        return False
+    sheet["subclasse"] = renamed
+    return True
+
+
 def techniques_for(via_id: str) -> list[dict]:
     via = next((item for item in VIAS if item["id"] == via_id), None)
     if via is None:
@@ -237,294 +213,228 @@ def techniques_for(via_id: str) -> list[dict]:
     return items
 
 
-# Atributo do ataque (recebe 15 e o +2) e o segundo (recebe 14 e o +1).
-# A origem muda só quando a antiga não inclui o atributo do ataque.
-_FOCUS = {
-    "ascendente_solitario": ("percepcao", "agilidade", None),
-    "ra_sombra": ("agilidade", "percepcao", None),
-    "rei_faminto": ("essencia", "intelecto", None),
-    "punho_exorcista": ("agilidade", "vigor", "candidato_do_exame"),
-    "olhar_infinito": ("essencia", "intelecto", None),
-    "fera_selada": ("agilidade", "vigor", None),
-    "guerreiro_despertar": ("agilidade", "vigor", "candidato_do_exame"),
-    "punho_elastico": ("agilidade", "forca", None),
-    "lamina_tripla": ("agilidade", "forca", None),
-    "lamina_dupla": ("agilidade", "forca", None),
-    "portador_colosso": ("agilidade", "forca", None),
-    "antidom": ("forca", "vigor", "mercenario"),
-    "grimorista_vento": ("intelecto", "percepcao", "erudito"),
-    "alquimista_aco": ("intelecto", "vigor", "erudito"),
-    "lamina_mare": ("agilidade", "vigor", None),
-    "herdeiro_dom": ("agilidade", "vigor", "candidato_do_exame"),
-    "menino_floresta": ("agilidade", "percepcao", None),
-    "herdeiro_raio": ("agilidade", "vigor", None),
-    "coracao_serra": ("forca", "vigor", "mercenario"),
-    "espadachim_negro": ("forca", "vigor", None),
-    "guardiao_almas": ("forca", "vigor", None),
-    "cacador_mutante": ("agilidade", "percepcao", None),
-    "senhor_noite": ("essencia", "intelecto", None),
-    "vigia_cacada": ("forca", "essencia", "criado_no_campo"),
-    "pele_lua": ("forca", "vigor", None),
-    "estrela_caida": ("forca", "vigor", None),
-    "vigilante_noite": ("agilidade", "intelecto", None),
-    "saltador_teias": ("agilidade", "percepcao", "candidato_do_exame"),
-    "couraca_fogo": ("intelecto", "agilidade", None),
-    "gourmet": ("percepcao", "vigor", None),
-    "invocador_feras": ("percepcao", "vigor", None),
-}
-
-_SCORE_ORDER = ("vigor", "forca", "agilidade", "percepcao", "intelecto", "essencia")
-_ARRAY = (15, 14, 13, 12, 10, 8)
-SUBCLASS_RENAME = {"Três Lâminas": "Múltiplas Lâminas", "Tres Laminas": "Múltiplas Lâminas"}
+ARCHETYPE_PATH = Path(__file__).resolve().parent.parent / "data" / "arquetipos.json"
+ATTRIBUTES = ("forca", "agilidade", "vigor", "percepcao", "intelecto", "essencia")
 
 
-def _scores(primary: str, secondary: str) -> dict[str, int]:
-    rest = [name for name in _SCORE_ORDER if name not in {primary, secondary}]
-    return {name: score for name, score in zip((primary, secondary, *rest), _ARRAY)}
+def _normalize_name(text: str) -> str:
+    folded = _fold(str(text))
+    return " ".join(re.sub(r"[^a-z0-9]+", " ", folded).split())
 
 
-def _prepare_builds() -> None:
-    for build in _BUILDS:
-        primary, secondary, origin = _FOCUS[build["id"]]
-        if origin:
-            build["origemId"] = origin
-        build["subclasse"] = SUBCLASS_RENAME.get(build["subclasse"], build["subclasse"])
-        build["atributos"] = _scores(primary, secondary)
-        build["bonusOrigem"] = {primary: 2, secondary: 1}
-        build["ataque"] = primary
+def normalize_quero(text: str) -> str:
+    normalized = _normalize_name(text)
+    normalized = re.sub(r"^(?:quero ser|quero virar|gostaria de ser)\b", "", normalized).strip()
+    return re.sub(r"^(?:um|uma|o|a|os|as)\b", "", normalized).strip()
 
 
-_prepare_builds()
+def _load_archetypes() -> tuple[list[dict], dict[str, dict], dict[str, str]]:
+    try:
+        rows = json.loads(ARCHETYPE_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"Não foi possível carregar {ARCHETYPE_PATH}.") from exc
+    if not isinstance(rows, list) or not rows:
+        raise ValueError("data/arquetipos.json deve conter uma lista de arquétipos.")
+
+    via_ids = {item["id"] for item in VIAS}
+    trait_ids = {item["id"] for item in TRAITS}
+    by_id: dict[str, dict] = {}
+    aliases: dict[str, str] = {}
+    for row in rows:
+        archetype_id = row.get("id")
+        if not isinstance(archetype_id, str) or not archetype_id or archetype_id in by_id:
+            raise ValueError(f"Id de arquétipo inválido ou duplicado: {archetype_id!r}.")
+        race = next((item for item in RACES if item["id"] == row.get("raca")), None)
+        origin = origin_by_id(str(row.get("origemId") or ""))
+        class_id = row.get("classe")
+        if race is None or class_id not in CLASS_STATS or class_id not in SUBCLASSES or origin is None:
+            raise ValueError(f"Arquétipo {archetype_id} referencia raça, classe ou origem inválida.")
+        if row.get("subclasse") not in SUBCLASSES[class_id]:
+            raise ValueError(f"Arquétipo {archetype_id} tem subclasse incompatível.")
+        if row.get("via") and row["via"] not in via_ids:
+            raise ValueError(f"Arquétipo {archetype_id} tem Via inválida.")
+        if row.get("traco") and row["traco"] not in trait_ids:
+            raise ValueError(f"Arquétipo {archetype_id} tem traço inválido.")
+        if row.get("variante") and row["variante"] not in race.get("variantes", []):
+            raise ValueError(f"Arquétipo {archetype_id} tem variante racial inválida.")
+        attributes = row.get("atributos")
+        if not isinstance(attributes, dict) or set(attributes) != set(ATTRIBUTES):
+            raise ValueError(f"Arquétipo {archetype_id} deve conter os seis atributos.")
+        if any(type(value) is not int for value in attributes.values()):
+            raise ValueError(f"Arquétipo {archetype_id} tem atributos não inteiros.")
+        try:
+            apply_origin_bonus(attributes, row.get("bonusOrigem"), origin["atributos"])
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"Arquétipo {archetype_id} tem atributos ou bônus de origem inválidos: {exc}") from exc
+
+        by_id[archetype_id] = row
+        for alias in (archetype_id, row.get("nome"), *row.get("aliases", [])):
+            normalized_alias = _normalize_name(str(alias or ""))
+            if not normalized_alias:
+                continue
+            existing = aliases.get(normalized_alias)
+            if existing and existing != archetype_id:
+                raise ValueError(
+                    f"Apelido ambíguo {normalized_alias!r}: {existing} e {archetype_id}."
+                )
+            aliases[normalized_alias] = archetype_id
+    return rows, by_id, aliases
 
 
-def rename_subclass(sheet: dict) -> bool:
-    current = sheet.get("subclasse")
-    renamed = SUBCLASS_RENAME.get(current)
-    if not renamed:
-        return False
-    sheet["subclasse"] = renamed
-    return True
+ARCHETYPES, ARCHETYPES_BY_ID, ARCHETYPE_ALIASES = _load_archetypes()
+log.info("arquetipos carregados total=%d", len(ARCHETYPES))
 
 
-def _normalize_request(text: str) -> str:
-    folded = _fold(text)
-    folded = re.sub(r"^(quero ser|quero jogar)\s+(o|a|os|as|um|uma)\s+", "", folded)
-    folded = re.sub(r"^(quero ser|quero jogar)\s+", "", folded)
-    return " ".join(folded.split())
-
-
-def _contains_alias(text: str, alias: str) -> bool:
-    """Casa só a frase inteira do apelido, em palavras completas. Sem trecho dentro de outro nome."""
-    alias = _fold(alias)
-    if len(alias) < 3:
-        return False
-    return re.search(rf"(?<!\w){re.escape(alias)}(?!\w)", text) is not None
-
-
-def _public_from(build: dict, *, fonte: str, motivo: str) -> dict:
+def _build_archetype(archetype_id: str, source: str, reason: str = "") -> dict:
+    row = ARCHETYPES_BY_ID[archetype_id]
     return {
-        "nome": build["nome"],
-        "conceito": build["conceito"],
-        "raca": build["raca"],
-        "variante": build.get("variante") or "",
-        "classe": build["classe"],
-        "subclasse": build["subclasse"],
-        "origemId": build["origemId"],
-        "via": build.get("via") or "",
-        "viaSugerida": build.get("viaSugerida") or "",
-        "traco": build.get("traco") or "",
-        "atributos": dict(build.get("atributos") or {}),
-        "bonusOrigem": dict(build.get("bonusOrigem") or {}),
-        "build": build["nome"],
-        "buildId": build["id"],
-        "fonte": fonte,
-        "motivo": motivo,
+        "nome": row["nome"],
+        "conceito": row["descricao"],
+        "raca": row["raca"],
+        "variante": row["variante"],
+        "classe": row["classe"],
+        "subclasse": row["subclasse"],
+        "via": row["via"],
+        "origemId": row["origemId"],
+        "traco": row["traco"],
+        "atributos": dict(row["atributos"]),
+        "bonusOrigem": dict(row["bonusOrigem"]),
+        "viaSugerida": row["via"],
+        "build": row["nome"],
+        "buildId": archetype_id,
+        "arquetipo_id": archetype_id,
+        "fonte": source,
+        "motivo": reason,
+        "podeCorrigir": True,
     }
+
+
+def _matching_archetype(normalized: str) -> str | None:
+    matches = [
+        (alias, archetype_id)
+        for alias, archetype_id in ARCHETYPE_ALIASES.items()
+        if re.search(rf"(?<![a-z0-9]){re.escape(alias)}(?![a-z0-9])", normalized)
+    ]
+    if not matches:
+        return None
+    matches.sort(key=lambda item: len(item[0]), reverse=True)
+    return matches[0][1]
 
 
 def match_known_build(text: str) -> dict | None:
-    remainder = _normalize_request(text)
-    if not remainder:
+    normalized = normalize_quero(text)
+    archetype_id = _matching_archetype(normalized)
+    if not archetype_id:
         return None
-    hits: list[tuple[int, str, dict]] = []
-    for build in _BUILDS:
-        for alias in build["aliases"]:
-            folded_alias = _fold(alias)
-            if _contains_alias(remainder, folded_alias):
-                hits.append((len(folded_alias), build["id"], build))
-    if not hits:
-        return None
-    best = max(item[0] for item in hits)
-    winners = {item[1]: item[2] for item in hits if item[0] == best}
-    if len(winners) != 1:
-        log.warning("quero fonte=tabela ambigua builds=%s", ",".join(sorted(winners)))
-        return None
-    build = next(iter(winners.values()))
-    return _public_from(build, fonte="tabela", motivo="apelido inteiro reconhecido na tabela")
+    return _build_archetype(archetype_id, "apelido")
 
 
 def suggest_build(text: str) -> dict | None:
-    if not _fold(text).strip():
-        return None
     return match_known_build(text)
 
 
-def _unknown_fallback(motivo: str) -> dict:
-    return {
-        "nome": "Rastreador sem trilha",
-        "conceito": "O pedido não casou com um build conhecido. Esta ficha de explorador é um ponto de partida para ajustar.",
-        "raca": "humano",
-        "variante": "",
-        "classe": "cacador",
-        "subclasse": "Caçador",
-        "origemId": "paria_da_floresta",
-        "via": "",
-        "traco": "faro_apurado",
-        "build": "",
-        "buildId": "",
-        "fonte": "fallback",
-        "motivo": motivo,
-    }
+def _archetype_options() -> list[dict]:
+    return [
+        {"id": row["id"], "nome": row["nome"], "descricao": row["descricao"]}
+        for row in ARCHETYPES
+    ]
 
 
-def catalog_prompt() -> str:
-    races = "; ".join(
-        f"{item['id']} ({item['nome']}: {item['texto']}" + (f"; variantes {', '.join(item['variantes'])}" if item.get("variantes") else "") + ")"
-        for item in RACES
-    )
-    classes = "; ".join(
-        f"{item['id']} ({item['nome']}; subclasses: {', '.join(SUBCLASSES[item['id']])})"
-        for item in public_catalog()["classes"]
-    )
-    origins = "; ".join(f"{item['id']} ({item['nome']})" for item in ORIGINS)
-    vias = "; ".join(f"{item['id']} ({item['nome']}: {item['fraqueza']})" for item in VIAS)
-    traits = "; ".join(f"{item['id']} ({item['nome']}: {item['beneficio']})" for item in TRAITS)
-    return (
-        "Você monta uma ficha original a partir do pedido. Não copie nome de pessoa, obra ou franquia. "
-        "Responda só um JSON com ids deste catálogo.\n"
-        f"Raças: {races}\n"
-        f"Classes: {classes}\n"
-        f"Origens: {origins}\n"
-        f"Vias: {vias}\n"
-        f"Traços: {traits}\n"
-        'Formato: {"nome":"nome original","conceito":"uma ou duas frases","raca":"id","variante":"","classe":"id","subclasse":"nome exato da lista","origemId":"id","via":"id ou vazio","traco":"id"}'
-    )
+def _choice_response() -> dict:
+    return {"precisaEscolha": True, "opcoes": _archetype_options(), "fonte": "botoes"}
 
 
-def _blocked_words(text: str) -> list[str]:
-    folded = _fold(text)
-    found = []
-    for build in _BUILDS:
-        for alias in build["aliases"]:
-            if len(alias) >= 4 and _contains_alias(folded, alias):
-                found.append(alias)
-    return found
+def archetype_choices() -> dict:
+    log.info("quero etapa=botoes")
+    return _choice_response()
 
 
-def validate_build(raw: object) -> tuple[dict | None, str]:
-    if not isinstance(raw, dict):
-        return None, "JSON não é um objeto"
-    required = ("nome", "conceito", "raca", "classe", "subclasse", "origemId")
-    missing = [key for key in required if not str(raw.get(key) or "").strip()]
-    if missing:
-        return None, "faltam campos: " + ", ".join(missing)
-    race_ids = {item["id"] for item in RACES}
-    if raw["raca"] not in race_ids:
-        return None, f"raça desconhecida: {raw['raca']}"
-    if raw["classe"] not in SUBCLASSES:
-        return None, f"classe desconhecida: {raw['classe']}"
-    if raw["subclasse"] not in SUBCLASSES[raw["classe"]]:
-        return None, f"subclasse desconhecida: {raw['subclasse']}"
-    if origin_by_id(str(raw["origemId"])) is None:
-        return None, f"origem desconhecida: {raw['origemId']}"
-    via = str(raw.get("via") or "")
-    if via and via not in {item["id"] for item in VIAS}:
-        return None, f"via desconhecida: {via}"
-    traco = str(raw.get("traco") or "")
-    if traco and traco not in {item["id"] for item in TRAITS}:
-        return None, f"traço desconhecido: {traco}"
-    race = next(item for item in RACES if item["id"] == raw["raca"])
-    variante = str(raw.get("variante") or "")
-    if race.get("variantes"):
-        if variante not in race["variantes"]:
-            return None, "variante inválida para a raça"
-    elif variante:
-        return None, "essa raça não tem variante"
-    nome = " ".join(str(raw["nome"]).split())
-    conceito = " ".join(str(raw["conceito"]).split())
-    leaked = _blocked_words(nome + " " + conceito)
-    if leaked:
-        return None, "o texto repete um apelido protegido"
-    if raw.get("traco") == "nulo":
-        via = ""
-    return {
-        "nome": nome[:40],
-        "conceito": conceito[:400],
-        "raca": raw["raca"],
-        "variante": variante,
-        "classe": raw["classe"],
-        "subclasse": raw["subclasse"],
-        "origemId": raw["origemId"],
-        "via": via,
-        "traco": traco,
-        "build": "",
-        "buildId": "",
-        "fonte": "narrador",
-        "motivo": "ids válidos do narrador",
-    }, ""
-
-
-def _load_json(raw: str) -> tuple[dict | None, str]:
-    start = raw.find("{")
-    end = raw.rfind("}")
-    if start < 0 or end <= start:
-        return None, "resposta sem JSON"
-    try:
-        loaded = json.loads(raw[start : end + 1])
-    except json.JSONDecodeError:
-        return None, "JSON inválido"
-    return validate_build(loaded)
-
-
-async def _read_json(gateway, messages) -> str:
-    chunks = []
-    async for piece in gateway.stream("free", messages, expect="json", temperature=0.2):
-        if getattr(piece, "text", ""):
-            chunks.append(piece.text)
-    return "".join(chunks)
-
-
-async def resolve_quero(text: str, gateway=None) -> dict | None:
-    if not _fold(text).strip():
+def choose_archetype(archetype_id: str) -> dict | None:
+    if archetype_id not in ARCHETYPES_BY_ID:
         return None
-    known = match_known_build(text)
-    if known:
-        log.info("quero fonte=tabela build=%s motivo=%s", known["buildId"], known["motivo"])
-        return known
-    motivo = "nenhum apelido na tabela"
-    if gateway is not None:
-        messages = [
-            {"role": "system", "content": catalog_prompt()},
-            {"role": "user", "content": text},
-        ]
-        for attempt in (1, 2):
-            try:
-                raw = await _read_json(gateway, messages)
-            except Exception as exc:
-                motivo = f"narrador indisponível ({type(exc).__name__})"
-                log.warning("quero fonte=narrador tentativa=%s motivo=%s", attempt, motivo)
-                break
-            parsed, reason = _load_json(raw)
-            if parsed:
-                log.info("quero fonte=narrador tentativa=%s", attempt)
-                return parsed
-            motivo = reason or "JSON recusado"
-            log.warning("quero fonte=narrador tentativa=%s motivo=%s", attempt, motivo)
-            messages.append({"role": "user", "content": "Recusado: " + motivo + ". Responda só o JSON corrigido, com ids do catálogo."})
-    fallback = _unknown_fallback(motivo)
-    log.warning("quero fonte=fallback motivo=%s", motivo)
-    return fallback
+    log.info("quero etapa=botoes arquetipo=%s", archetype_id)
+    return _build_archetype(archetype_id, "botoes")
 
+
+def _classifier_messages(normalized: str) -> list[dict[str, str]]:
+    ids = ", ".join(ARCHETYPES_BY_ID)
+    return [
+        {
+            "role": "system",
+            "content": (
+                "Classifique o conceito do jogador em um arquétipo existente. "
+                "Não crie ficha nem números. Responda somente JSON válido com as chaves "
+                '"arquetipo_id", "confianca" (0 a 1) e "motivo". '
+                f"O id deve ser um destes: {ids}. Se não houver boa correspondência, use id vazio e confiança 0."
+            ),
+        },
+        {"role": "user", "content": normalized},
+    ]
+
+
+async def _classify_archetype(gateway, normalized: str, route: str) -> tuple[str, float, str] | None:
+    pieces = []
+    async for piece in gateway.stream(
+        route, _classifier_messages(normalized), expect="json", temperature=0
+    ):
+        pieces.append(piece)
+    text = "".join(getattr(piece, "text", "") for piece in pieces).strip()
+    try:
+        result = json.loads(text)
+    except (TypeError, json.JSONDecodeError):
+        return None
+    if not isinstance(result, dict):
+        return None
+    archetype_id = result.get("arquetipo_id")
+    confidence = result.get("confianca")
+    reason = result.get("motivo")
+    if (
+        not isinstance(archetype_id, str)
+        or archetype_id not in ARCHETYPES_BY_ID
+        or isinstance(confidence, bool)
+        or not isinstance(confidence, (int, float))
+        or not 0 <= confidence <= 1
+        or not isinstance(reason, str)
+    ):
+        return None
+    return archetype_id, float(confidence), reason
+
+
+async def resolve_quero(text: str, gateway=None, learned_id: str | None = None) -> dict | None:
+    normalized = normalize_quero(text)
+    if not normalized:
+        return None
+
+    matched_id = _matching_archetype(normalized)
+    if matched_id:
+        log.info("quero etapa=apelido arquetipo=%s", matched_id)
+        return _build_archetype(matched_id, "apelido")
+
+    if learned_id in ARCHETYPES_BY_ID:
+        log.info("quero etapa=aprendido arquetipo=%s", learned_id)
+        return _build_archetype(learned_id, "aprendido")
+    if learned_id:
+        log.warning("quero aprendizado_invalido arquetipo=%s", learned_id)
+
+    if gateway is not None:
+        for attempt, route in ((1, "free"), (2, "fallback")):
+            try:
+                classified = await _classify_archetype(gateway, normalized, route)
+            except Exception:
+                log.exception("quero classificador falhou tentativa=%d", attempt)
+                classified = None
+            if classified and classified[1] >= 0.6:
+                archetype_id, confidence, _reason = classified
+                log.info(
+                    "quero etapa=llm tentativa=%d arquetipo=%s confianca=%.2f",
+                    attempt,
+                    archetype_id,
+                    confidence,
+                )
+                return _build_archetype(archetype_id, "llm")
+            log.warning("quero classificador inconclusivo tentativa=%d", attempt)
+
+    return archetype_choices()
 
 def transformation_offer(race_id: str, class_id: str, level: int, stage: int, subclass: str = "") -> list[dict]:
     """Formas que o nível e o estágio permitem. O motor ainda corta pelo modo."""

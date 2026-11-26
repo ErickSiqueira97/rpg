@@ -7,6 +7,8 @@ const fichaDialog = document.querySelector("#ficha-dialog");
 let token = localStorage.getItem("token") || "";
 let sagaId = "";
 let fichaAtual = null;
+let jogadorId = "";
+let ultimoTextoQuero = "";
 
 function say(text) {
   statusEl.textContent = text || "";
@@ -157,38 +159,89 @@ document.querySelectorAll("[data-bonus]").forEach((button) => {
   button.addEventListener("click", () => moverBonus(button.dataset.bonus));
 });
 
-document.querySelector("#quero").addEventListener("click", async () => {
+function mostrarOpcoesArquetipo(opcoes) {
+  const container = document.querySelector("#arquetipo-opcoes");
+  container.replaceChildren();
+  opcoes.forEach((opcao) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    const name = document.createElement("strong");
+    name.textContent = opcao.nome;
+    const description = document.createElement("span");
+    description.textContent = opcao.descricao;
+    button.append(name, description);
+    button.addEventListener("click", () => resolverQuero({ arquetipo_id: opcao.id }).catch((error) => say(error.message)));
+    container.append(button);
+  });
+  container.hidden = false;
+}
+
+function preencherFichaSugerida(data) {
+  document.querySelector("#nome").value = data.nome;
+  document.querySelector("#conceito").value = data.conceito || "";
+  document.querySelector("#raca").value = data.raca;
+  sincronizarRaca();
+  if (data.variante) document.querySelector("#variante").value = data.variante;
+  document.querySelector("#classe").value = data.classe;
+  sincronizarClasse();
+  document.querySelector("#subclasse").value = data.subclasse;
+  if (data.origemId) document.querySelector("#origem-id").value = data.origemId;
+  if (data.atributos) {
+    Object.entries(data.atributos).forEach(([name, value]) => {
+      const input = document.getElementById(name);
+      if (input) input.value = value;
+    });
+  }
+  if (data.bonusOrigem) bonusOrigem = Object.assign({}, data.bonusOrigem);
+  sincronizarOrigem(Boolean(data.bonusOrigem));
+  document.querySelector("#via").value = data.via || "";
+  document.querySelector("#traco").value = data.traco || "";
+  window.sugestaoAtual = data;
+  atualizarDicaVia(data);
+  document.querySelector("#arquetipo-opcoes").hidden = true;
+  document.querySelector("#nao-e-isso").hidden = !data.podeCorrigir;
+  const stages = {
+    apelido: "Arquétipo reconhecido pelo apelido.",
+    aprendido: "Sugestão baseada na sua escolha anterior.",
+    llm: "Arquétipo sugerido para o conceito.",
+    botoes: "Arquétipo escolhido.",
+  };
+  document.querySelector("#quero-resultado").textContent =
+    "Sugestão: " + data.nome + ". " + (stages[data.fonte] || "") + " O nome pedido não entra na ficha.";
+}
+
+async function resolverQuero(extra = {}) {
+  if (!catalogo) await prepararCatalogo();
+  const input = document.querySelector("#quero-texto").value.trim();
+  ultimoTextoQuero = "quero ser " + input;
+  const data = await api("/api/quero", {
+    method: "POST",
+    body: JSON.stringify(Object.assign({ texto: ultimoTextoQuero }, extra)),
+  });
+  if (data.precisaEscolha) {
+    document.querySelector("#arquetipo-opcoes").hidden = true;
+    mostrarOpcoesArquetipo(data.opcoes || []);
+    document.querySelector("#nao-e-isso").hidden = true;
+    document.querySelector("#quero-resultado").textContent =
+      "Não encontramos uma correspondência confiável. Escolha um arquétipo; nenhum atributo será gerado pela IA.";
+    return;
+  }
+  preencherFichaSugerida(data);
+}
+
+document.querySelector("#quero").addEventListener("click", () => {
+  resolverQuero().catch((error) => say(error.message));
+});
+
+document.querySelector("#nao-e-isso").addEventListener("click", async () => {
   try {
-    if (!catalogo) await prepararCatalogo();
     const data = await api("/api/quero", {
       method: "POST",
-      body: JSON.stringify({ texto: "quero ser " + document.querySelector("#quero-texto").value }),
+      body: JSON.stringify({ texto: ultimoTextoQuero, nao_e_isso: true }),
     });
-    document.querySelector("#nome").value = data.nome;
-    document.querySelector("#conceito").value = data.conceito || "";
-    document.querySelector("#raca").value = data.raca;
-    sincronizarRaca();
-    if (data.variante) document.querySelector("#variante").value = data.variante;
-    document.querySelector("#classe").value = data.classe;
-    sincronizarClasse();
-    document.querySelector("#subclasse").value = data.subclasse;
-    if (data.origemId) document.querySelector("#origem-id").value = data.origemId;
-    if (data.atributos) {
-      Object.entries(data.atributos).forEach(([name, value]) => {
-        const input = document.getElementById(name);
-        if (input) input.value = value;
-      });
-    }
-    if (data.bonusOrigem) bonusOrigem = Object.assign({}, data.bonusOrigem);
-    sincronizarOrigem(Boolean(data.bonusOrigem));
-    document.querySelector("#via").value = data.via || "";
-    document.querySelector("#traco").value = data.traco || "";
-    window.sugestaoAtual = data;
-    atualizarDicaVia(data);
-    const conhecido = data.fonte === "tabela" && data.build
-      ? " Build conhecido: " + data.build + "."
-      : " A tabela não reconheceu o pedido.";
-    document.querySelector("#quero-resultado").textContent = "Sugestão: " + data.nome + "." + conhecido + " O nome pedido não entra na ficha.";
+    mostrarOpcoesArquetipo(data.opcoes || []);
+    document.querySelector("#nao-e-isso").hidden = true;
+    document.querySelector("#quero-resultado").textContent = "Aprendizado removido. Escolha o arquétipo correto.";
   } catch (error) {
     say(error.message);
   }
@@ -230,6 +283,7 @@ document.querySelector("#cadastrar").addEventListener("click", () => {
 document.querySelector("#sair").addEventListener("click", () => {
   token = "";
   sagaId = "";
+  jogadorId = "";
   localStorage.removeItem("token");
   localStorage.removeItem("sagaId");
   jogoEl.hidden = true;
@@ -239,6 +293,7 @@ document.querySelector("#sair").addEventListener("click", () => {
 });
 
 function mostrarJogador(jogador) {
+  jogadorId = jogador.id;
   const limite = jogador.turnosLimite == null ? "sem teto" : jogador.turnosUsados + "/" + jogador.turnosLimite;
   const teste = jogador.plano === "trial" ? " · teste: " + jogador.diasDeTeste + " dia(s)" : "";
   const texto = "Plano " + jogador.plano + " · turnos hoje " + limite + teste;
@@ -430,6 +485,8 @@ async function lutar(path) {
     say("Crie um personagem antes de treinar.");
     return;
   }
+  const aulaKey = "treino-aula-vista:" + jogadorId;
+  const aula = path.endsWith("professor") && localStorage.getItem(aulaKey) !== "true";
   const data = await api(path, {
     method: "POST",
     body: JSON.stringify({
@@ -437,11 +494,12 @@ async function lutar(path) {
       nivel: Number(document.querySelector("#treino-nivel").value),
       dificuldade: document.querySelector("#treino-dif").value,
       oponente: document.querySelector("#treino-tipo").value,
-      aula: path.endsWith("professor"),
+      aula: aula,
     }),
   });
-  document.querySelector("#treino-log").textContent = data.vencedor + "\n" + (data.linhas || []).join("\n");
-  say(data.vencedor === "jogador" ? "Vitória." : "Derrota.");
+  if (aula) localStorage.setItem(aulaKey, "true");
+  document.querySelector("#treino-log").textContent = data.resultado + "\n" + (data.linhas || []).join("\n");
+  say(data.resultado);
 }
 
 document.querySelector("#treinar").addEventListener("click", () => {

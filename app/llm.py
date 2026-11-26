@@ -404,6 +404,13 @@ class FakeGateway:
     async def stream(self, route: str, messages: list[dict[str, str]], *, expect: str = "prose", temperature: float | None = None):
         self.calls.append((route, messages))
         if expect == "json":
+            content = "\n".join(item.get("content") or "" for item in messages)
+            if '"arquetipo_id"' in content:
+                yield Piece(
+                    text='{"arquetipo_id":"","confianca":0,"motivo":"sem correspondência"}',
+                    model=f"fake-{route}",
+                )
+                return
             yield Piece(text=fake_intent(messages), model=f"fake-{route}")
             return
         text = (
@@ -462,6 +469,8 @@ class Attempt:
 
 def attempts_for(settings: Settings, route: str) -> list[Attempt]:
     """Ordem de tentativa. Os dois ids do Gemini usam a mesma chave."""
+    if route == "fallback":
+        return attempts_for(settings, "free")[1:]
     if route == "paid":
         if not settings.paid_api_key:
             return []
@@ -569,7 +578,9 @@ class LiteLLMGateway:
             self._ensure_budget(deadline)
             try:
                 pieces: list[Piece] = []
-                async for piece in self._stream_attempt(attempt, messages, deadline, temperature=temperature):
+                async for piece in self._stream_attempt(
+                    attempt, messages, deadline, expect=expect, temperature=temperature
+                ):
                     pieces.append(piece)
                 if _usable(pieces, expect):
                     return pieces
@@ -585,7 +596,9 @@ class LiteLLMGateway:
         self._ensure_budget(deadline)
         log.warning("stream sem texto modelo=%s; tentando sem streaming", attempt.model)
         try:
-            response = await self._call(attempt, messages, stream=False, deadline=deadline, temperature=temperature)
+            response = await self._call(
+                attempt, messages, stream=False, deadline=deadline, temperature=temperature, expect=expect
+            )
         except Exception as exc:
             if last is not None and not is_transient(exc):
                 raise
@@ -607,8 +620,18 @@ class LiteLLMGateway:
         if time.monotonic() >= deadline:
             raise TimeoutError("limite do turno")
 
-    async def _stream_attempt(self, attempt: Attempt, messages: list[dict[str, str]], deadline: float, *, temperature: float | None = None):
-        response = await self._call(attempt, messages, stream=True, deadline=deadline, temperature=temperature)
+    async def _stream_attempt(
+        self,
+        attempt: Attempt,
+        messages: list[dict[str, str]],
+        deadline: float,
+        *,
+        expect: str = "prose",
+        temperature: float | None = None,
+    ):
+        response = await self._call(
+            attempt, messages, stream=True, deadline=deadline, temperature=temperature, expect=expect
+        )
         iterator = response.__aiter__()
         first_wait = min(self.settings.first_token_seconds, max(0.05, deadline - time.monotonic()))
         deadline_first = time.monotonic() + first_wait
@@ -626,8 +649,10 @@ class LiteLLMGateway:
                 if piece.text:
                     got_text = True
                     yield piece
-                elif piece.prompt_tokens is not None:
+                elif piece.prompt_tokens is not None or piece.finish_reason:
                     yield piece
+                    if piece.finish_reason:
+                        break
             end = min(time.monotonic() + self.settings.llm_timeout, deadline)
             while True:
                 remaining = end - time.monotonic()
@@ -638,7 +663,7 @@ class LiteLLMGateway:
                 except StopAsyncIteration:
                     return
                 piece = _piece_from_chunk(chunk)
-                if piece.text or piece.prompt_tokens is not None:
+                if piece.text or piece.prompt_tokens is not None or piece.finish_reason:
                     yield piece
         finally:
             aclose = getattr(iterator, "aclose", None)
@@ -657,10 +682,14 @@ class LiteLLMGateway:
         max_tokens: int | None = None,
         deadline: float | None = None,
         temperature: float | None = None,
+        expect: str = "prose",
     ):
         timeout = self.settings.first_token_seconds if stream else self.settings.llm_timeout
         if deadline is not None:
             timeout = min(timeout, max(0.05, deadline - time.monotonic()))
+        output_tokens = max_tokens
+        if output_tokens is None:
+            output_tokens = max(self.settings.max_output_tokens, 1024) if expect == "json" else self.settings.max_output_tokens
         kwargs: dict = {
             "model": attempt.model,
             "messages": messages,
@@ -669,9 +698,11 @@ class LiteLLMGateway:
             "timeout": timeout,
             "stream_timeout": self.settings.first_token_seconds,
             "temperature": self.settings.temperature if temperature is None else temperature,
-            "max_tokens": self.settings.max_output_tokens if max_tokens is None else max_tokens,
+            "max_tokens": output_tokens,
             "drop_params": True,
         }
+        if expect == "json":
+            kwargs["response_format"] = {"type": "json_object"}
         if attempt.model.startswith("gemini/"):
             kwargs["reasoning_effort"] = "minimal"
         if attempt.api_base:
@@ -713,7 +744,10 @@ def chunk_finish(chunk: object) -> str:
 def _usable(pieces: list[Piece], expect: str) -> bool:
     text = "".join(piece.text for piece in pieces)
     if expect == "json":
-        return "intencao" in text and "{" in text
+        try:
+            return isinstance(json.loads(text), dict)
+        except (json.JSONDecodeError, TypeError):
+            return False
     return _usable_prose(pieces)
 
 
@@ -726,7 +760,7 @@ def _usable_prose(pieces: list[Piece]) -> bool:
 def _log_empty_prose(attempt: Attempt, pieces: list[Piece]) -> None:
     reason = next((piece.finish_reason for piece in reversed(pieces) if piece.finish_reason), "?")
     log.warning(
-        "narrador sem prosa provedor=%s modelo=%s finish_reason=%s",
+        "narrador resposta inutilizavel provedor=%s modelo=%s finish_reason=%s",
         attempt.label,
         attempt.model,
         reason,

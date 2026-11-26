@@ -61,6 +61,35 @@ async def jogar(client):
 
 
 @pytest.mark.asyncio
+async def test_treino_retorna_log_completo_e_explicacao_da_aula(client):
+    headers, _saga_id = await jogar(client)
+    characters = await client.get("/api/personagens", headers=headers)
+    character_id = characters.json()[0]["id"]
+
+    response = await client.post(
+        "/api/professor",
+        headers=headers,
+        json={"personagemId": character_id, "nivel": 5, "aula": True},
+    )
+
+    assert response.status_code == 200
+    result = response.json()
+    assert result["resultado"].endswith(f"em {result['rodadas']} rodadas.")
+    assert result["linhas"][0].startswith("Aula: CA (Classe de Armadura)")
+    assert any(line.startswith("── Rodada 1 ──") for line in result["linhas"])
+    assert any("Espelho " in line and " → " in line and " PV" in line for line in result["linhas"])
+    assert result["linhas"][-1].startswith("PV finais —")
+
+    response = await client.post(
+        "/api/professor",
+        headers=headers,
+        json={"personagemId": character_id, "nivel": 5, "aula": False},
+    )
+    assert response.status_code == 200
+    assert not any(line.startswith("Aula:") for line in response.json()["linhas"])
+
+
+@pytest.mark.asyncio
 async def test_cadastro_ficha_saga_e_continuacao(client, app):
     headers, saga_id = await jogar(client)
     me = await client.get("/api/eu", headers=headers)
@@ -105,6 +134,72 @@ async def test_cadastro_ficha_saga_e_continuacao(client, app):
     assert login.status_code == 200
     wrong = await client.post("/api/entrar", json={"usuario": "lia", "senha": "errada"})
     assert wrong.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_quero_oferece_botoes_aprende_escolha_e_remove_aprendizado(client, app):
+    registration = await client.post("/api/cadastro", json={"usuario": "lia", "senha": "segredo"})
+    headers = {"Authorization": f"Bearer {registration.json()['token']}"}
+
+    unknown = await client.post("/api/quero", headers=headers, json={"texto": "quero ser zorblax"})
+    assert unknown.status_code == 200
+    assert unknown.json()["precisaEscolha"] is True
+    assert len(unknown.json()["opcoes"]) == 25
+
+    selected = await client.post(
+        "/api/quero",
+        headers=headers,
+        json={"texto": "quero ser zorblax", "arquetipo_id": "lutador_aura"},
+    )
+    assert selected.status_code == 200
+    assert selected.json()["arquetipo_id"] == "lutador_aura"
+    assert selected.json()["fonte"] == "botoes"
+
+    learned = await client.post("/api/quero", headers=headers, json={"texto": "quero ser zorblax"})
+    assert learned.json()["fonte"] == "aprendido"
+    assert learned.json()["arquetipo_id"] == "lutador_aura"
+
+    correction = await client.post(
+        "/api/quero",
+        headers=headers,
+        json={"texto": "quero ser zorblax", "nao_e_isso": True},
+    )
+    assert correction.json()["precisaEscolha"] is True
+    store = app.state.store
+    user = store.user_by_token(registration.json()["token"])
+    assert store.learned_archetype(user.id, "zorblax") is None
+
+
+@pytest.mark.asyncio
+async def test_quero_aprende_classificacao_da_llm(client, app):
+    import json
+    from types import SimpleNamespace
+
+    class ClassifierGateway:
+        def __init__(self):
+            self.calls = 0
+
+        async def stream(self, _route, _messages, *, expect, temperature):
+            assert expect == "json"
+            assert temperature == 0
+            self.calls += 1
+            yield SimpleNamespace(
+                text=json.dumps(
+                    {"arquetipo_id": "lutador_aura", "confianca": 0.8, "motivo": "combatente de aura"}
+                )
+            )
+
+    registration = await client.post("/api/cadastro", json={"usuario": "ria", "senha": "segredo"})
+    headers = {"Authorization": f"Bearer {registration.json()['token']}"}
+    gateway = ClassifierGateway()
+    app.state.gateway = gateway
+
+    classified = await client.post("/api/quero", headers=headers, json={"texto": "quero ser um lutador energético"})
+    assert classified.status_code == 200
+    assert classified.json()["fonte"] == "llm"
+    learned = await client.post("/api/quero", headers=headers, json={"texto": "quero ser um lutador energético"})
+    assert learned.json()["fonte"] == "aprendido"
+    assert gateway.calls == 1
 
 
 @pytest.mark.asyncio

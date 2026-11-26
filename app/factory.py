@@ -22,7 +22,14 @@ from app.missions import STARTER, mission_by_id
 from app.moderation import Moderator
 from app.narrator import GameEvent, Narrator, new_saga_world
 from app.plans import daily_limit, day_key, days_left, effective_plan, next_reset_at
-from app.catalog import origin_by_id, public_catalog, resolve_quero
+from app.catalog import (
+    archetype_choices,
+    choose_archetype,
+    normalize_quero,
+    origin_by_id,
+    public_catalog,
+    resolve_quero,
+)
 from app.engine.duel import archetype_profile, fight, profile_from_character
 from app.engine.sheet import (
     apply_asi,
@@ -153,9 +160,24 @@ def create_app(
         if isinstance(user, JSONResponse):
             return user
         body = await _body(request)
-        build = await resolve_quero(str(body.get("texto") or ""), request.app.state.gateway)
-        if build is None:
+        text = str(body.get("texto") or "")
+        normalized = normalize_quero(text)
+        if not normalized:
             return _erro(400, "quero", "Diga o que você quer ser, em uma frase.")
+        if body.get("nao_e_isso"):
+            store.forget_learned_archetype(user.id, normalized)
+            return archetype_choices()
+        selected_id = str(body.get("arquetipo_id") or "")
+        if selected_id:
+            build = choose_archetype(selected_id)
+            if build is None:
+                return _erro(400, "arquetipo", "Esse arquétipo não existe.")
+            store.learn_archetype(user.id, normalized, selected_id, clock())
+            return build
+        learned_id = store.learned_archetype(user.id, normalized)
+        build = await resolve_quero(text, request.app.state.gateway, learned_id)
+        if build and build.get("fonte") == "llm":
+            store.learn_archetype(user.id, normalized, build["arquetipo_id"], clock())
         return build
 
     @app.post("/api/personagens/{character_id}/subir")
@@ -438,11 +460,12 @@ async def _treino(request: Request, store: Store, clock, settings: Settings, *, 
     store.record_fight(user.id, character.sheet or sheet, opponent, result["vencedor"], kind, clock())
     lines = list(result["linhas"])
     if body.get("aula"):
-        lines.insert(0, "Aula: o d20 soma o bônus de ataque e compara com a CA. Abaixo da metade dos PV, quem luta defende em vez de atacar.")
+        lines.insert(0, "Aula: CA (Classe de Armadura) é o valor que um ataque precisa alcançar; o bônus de ataque é somado ao d20; acertando, o dano reduz os PV. Abaixo da metade dos PV, quem luta defende em vez de atacar.")
     return {
         "vencedor": result["vencedor"],
         "rodadas": result["rodadas"],
-        "linhas": lines[:12],
+        "resultado": result["resultado"],
+        "linhas": lines,
         "xp": gained,
         "nivel": level,
         "dificuldade": difficulty,

@@ -60,7 +60,7 @@
       <button type="button" id="treinar">Treinar</button>
       <button type="button" id="arena">Arena</button>
     </p>
-    <pre id="treino-log"></pre>
+    <pre id="treino-log" aria-live="polite"></pre>
     <h2>Suas aventuras</h2>
     <div id="aventuras" class="cards"></div>
     <details id="vazias">
@@ -76,6 +76,8 @@
       <input id="quero-texto" maxlength="120" autocomplete="off" placeholder="Descreva o herói, sem precisar do nome">
       <button type="button" id="quero">Sugerir ficha</button>
       <p id="quero-resultado"></p>
+      <div id="arquetipo-opcoes" class="arquetipo-opcoes" hidden></div>
+      <button type="button" id="nao-e-isso" hidden>Não é isso</button>
       <label for="nome">Nome</label>
       <input id="nome" name="nome" required maxlength="40" autocomplete="off">
       <label for="raca">Raça</label>

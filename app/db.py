@@ -151,6 +151,13 @@ class Store:
                 turns INTEGER NOT NULL,
                 PRIMARY KEY (user_id, day)
             );
+            CREATE TABLE IF NOT EXISTS apelidos_aprendidos (
+                user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                nome_normalizado TEXT NOT NULL,
+                arquetipo_id TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                PRIMARY KEY (user_id, nome_normalizado)
+            );
             """
         )
         columns = {row[1] for row in self._db.execute("PRAGMA table_info(sagas)")}
@@ -318,6 +325,36 @@ class Store:
                     character.id,
                     character.user_id,
                 ),
+            )
+            self._db.commit()
+
+    def learned_archetype(self, user_id: str, normalized_name: str) -> str | None:
+        with self._lock:
+            row = self._db.execute(
+                "SELECT arquetipo_id FROM apelidos_aprendidos WHERE user_id = ? AND nome_normalizado = ?",
+                (user_id, normalized_name),
+            ).fetchone()
+        return row["arquetipo_id"] if row else None
+
+    def learn_archetype(self, user_id: str, normalized_name: str, archetype_id: str, now: int) -> None:
+        with self._lock:
+            self._db.execute(
+                """
+                INSERT INTO apelidos_aprendidos (user_id, nome_normalizado, arquetipo_id, created_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(user_id, nome_normalizado) DO UPDATE SET
+                    arquetipo_id = excluded.arquetipo_id,
+                    created_at = excluded.created_at
+                """,
+                (user_id, normalized_name, archetype_id, now),
+            )
+            self._db.commit()
+
+    def forget_learned_archetype(self, user_id: str, normalized_name: str) -> None:
+        with self._lock:
+            self._db.execute(
+                "DELETE FROM apelidos_aprendidos WHERE user_id = ? AND nome_normalizado = ?",
+                (user_id, normalized_name),
             )
             self._db.commit()
 
