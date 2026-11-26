@@ -87,17 +87,42 @@ SUBCLASSES = {
 }
 
 TRAITS = [
-    {"id": "forjado_na_luta", "nome": "Forjado na Luta", "beneficio": "+1 no próximo ataque ou salvaguarda depois de falhar, até +3.", "custo": "Começa sem laços."},
-    {"id": "sistema", "nome": "Sistema", "beneficio": "Missão diária concede Inspiração Heroica.", "custo": "Falhar a missão diária dá 1 Exaustão."},
-    {"id": "olhos_raros", "nome": "Olhos Raros", "beneficio": "Vantagem em Percepção visual. Vê invisíveis a 3 m.", "custo": "Desvantagem contra luz ofuscante."},
-    {"id": "dom_singular", "nome": "Dom Singular", "beneficio": "Um poder corporal, como alcance 3 m.", "custo": "Um custo equivalente, como não nadar."},
-    {"id": "membro_de_aco", "nome": "Membro de Aço", "beneficio": "Golpe desarmado 1d6.", "custo": "1 natural trava a prótese."},
-    {"id": "faro_apurado", "nome": "Faro Apurado", "beneficio": "Vantagem em Percepção e Sobrevivência pelo olfato.", "custo": "Desvantagem contra venenos inalados."},
-    {"id": "marca_do_sacrificio", "nome": "Marca do Sacrifício", "beneficio": "Sente criaturas sobrenaturais a 18 m.", "custo": "Encontros extras à noite na saga."},
-    {"id": "nulo", "nome": "Nulo", "beneficio": "Vantagem em salvaguardas contra técnicas.", "custo": "Não usa Vias nem itens mágicos."},
-    {"id": "divida_com_fera", "nome": "Dívida com Fera", "beneficio": "Uma vez por descanso longo, cai a 1 em vez de 0.", "custo": "Metade das moedas vai para a dívida."},
-    {"id": "mutagenico", "nome": "Mutagênico", "beneficio": "Visão no escuro 18 m e Vantagem contra veneno.", "custo": "Desvantagem em Persuasão com pessoas comuns."},
+    {"id": "forjado_na_luta", "nome": "Forjado na Luta", "beneficio": "+1 no próximo ataque ou salvaguarda depois de falhar, até +3.", "custo": "Começa sem laços.", "efeito_motor": {"acumulo_falha_max": 3}},
+    {"id": "sistema", "nome": "Sistema", "beneficio": "Missão diária concede Inspiração Heroica.", "custo": "Falhar a missão diária dá 1 Exaustão.", "efeito_motor": {"missao_diaria": True}},
+    {"id": "olhos_raros", "nome": "Olhos Raros", "beneficio": "Vantagem em Percepção visual. Vê invisíveis a 3 m.", "custo": "Desvantagem contra luz ofuscante.", "efeito_motor": {"vantagem_pericia": ["percepcao"]}},
+    {"id": "dom_singular", "nome": "Dom Singular", "beneficio": "Um poder corporal, como alcance 3 m.", "custo": "Um custo equivalente, como não nadar.", "efeito_motor": {"alcance_m": 3}},
+    {"id": "membro_de_aco", "nome": "Membro de Aço", "beneficio": "Golpe desarmado 1d6.", "custo": "1 natural trava a prótese.", "efeito_motor": {"desarmado_dado": 6, "trava_no_1": True}},
+    {"id": "faro_apurado", "nome": "Faro Apurado", "beneficio": "Vantagem em Percepção e Sobrevivência pelo olfato.", "custo": "Desvantagem contra venenos inalados.", "efeito_motor": {"vantagem_pericia": ["percepcao", "sobrevivencia"]}},
+    {"id": "marca_do_sacrificio", "nome": "Marca do Sacrifício", "beneficio": "Sente criaturas sobrenaturais a 18 m.", "custo": "Encontros extras à noite na saga.", "efeito_motor": {"sentir_sobrenatural_m": 18}},
+    {"id": "nulo", "nome": "Nulo", "beneficio": "Vantagem em salvaguardas contra técnicas.", "custo": "Não usa Vias nem itens mágicos.", "efeito_motor": {"bloqueia_via": True, "vantagem_contra_tecnica": True}},
+    {"id": "divida_com_fera", "nome": "Dívida com Fera", "beneficio": "Uma vez por descanso longo, cai a 1 em vez de 0.", "custo": "Metade das moedas vai para a dívida.", "efeito_motor": {"cai_1_pv": True}},
+    {"id": "mutagenico", "nome": "Mutagênico", "beneficio": "Visão no escuro 18 m e Vantagem contra veneno.", "custo": "Desvantagem em Persuasão com pessoas comuns.", "efeito_motor": {"desvantagem_pericia": ["persuasao"]}},
 ]
+
+RACE_EFFECTS = {
+    "humano": {"inspiracao_descanso": True},
+    "feral": {"ataque_natural": 6, "estagio1_ataque_natural": 8},
+    "rochoso": {"pv_por_nivel": 1, "resistencias": ["veneno"]},
+    "longevo": {"vantagem_condicao": ["enfeiticado"]},
+    "miudo": {"pequeno": True, "salv_vantagem": ["intelecto", "percepcao", "essencia"]},
+    "meio_gigante": {"vantagem_forca_nivel": 5},
+    "pequenino": {"pequeno": True, "rerola_1": True},
+    "oni": {"cai_1_pv": True},
+    "marcado_abissal": {"legado_tecnicas": True},
+    "sangue_de_dragao": {"resistencias": ["fogo"]},
+    "estelar": {"impeto_sobrevivente": True},
+    "noturno": {"resistencias": ["necrotico"], "sol_desvantagem": True},
+    "licantropo": {"forma_lupina": True},
+    "receptaculo": {"vantagem_condicao": ["enfeiticado", "amedrontado"]},
+    "sangue_de_colosso": {"forma_parcial_nivel": 3},
+    "espirito_amaldicoado": {"resistencias": ["necrotico"], "vulnerabilidades": ["radiante"], "cura_metade": True},
+    "automato": {"ca_bonus": 1, "resistencias": ["veneno"]},
+    "iluminado": {"resistencias": ["radiante", "necrotico"]},
+    "morto_andante": {"vantagem_morte": True, "resistencias": ["necrotico", "veneno"], "cura_metade": True},
+}
+
+for _race in RACES:
+    _race["efeito_motor"] = RACE_EFFECTS.get(_race["id"], {})
 
 # Apelidos só casam o pedido. Nenhum deles é copiado para nome, conceito ou ficha.
 _BUILDS = [

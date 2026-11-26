@@ -418,6 +418,9 @@ def fake_intent(messages: list[dict[str, str]]) -> str:
     if "ataco" in blob or "ataque" in blob or "golpe" in blob:
         teste = {"tipo": "ataque", "atributo": "forca", "pericia": "", "dificuldade": "medio", "vantagem": "nenhuma"}
         intencao = "atacar"
+    elif "tecnica" in blob or "magia" in blob or "conjuro" in blob:
+        teste = {"tipo": "tecnica", "atributo": "", "pericia": "", "dificuldade": "medio", "vantagem": "nenhuma", "circulo": 1}
+        intencao = "tecnica"
     elif "escond" in blob or "furtiv" in blob:
         teste = {"tipo": "pericia", "atributo": "agilidade", "pericia": "furtividade", "dificuldade": "medio", "vantagem": "nenhuma"}
         intencao = "esconder"

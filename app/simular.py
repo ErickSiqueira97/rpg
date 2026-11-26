@@ -25,8 +25,8 @@ def simulate(fights_each: int = 100, seed: int = 1, levels: tuple[int, ...] = (1
             for level in levels:
                 wins = 0
                 for index in range(fights_each):
-                    left = make_profile(class_id, attrs, level, nome=race["id"])
-                    right = make_profile(class_id, attrs, level, nome="espelho")
+                    left = make_profile(class_id, attrs, level, nome=race["id"], race_id=race["id"])
+                    right = make_profile(class_id, attrs, level, nome="espelho", race_id=race["id"])
                     result = fight(left, right, f"{seed}|{race['id']}|{class_id}|{level}|{index}")
                     if result["vencedor"] == "jogador":
                         wins += 1

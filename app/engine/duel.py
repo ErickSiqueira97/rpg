@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from app.engine.math import attack_bonus_cap, clamp, modifier, proficiency
+from app.engine.combat import weapon_profile
+from app.engine.math import armor_class_cap, attack_bonus_cap, clamp, modifier, proficiency
 from app.engine.rng import roller
-from app.engine.sheet import CLASSES, extra_attacks, hp_at_level_one, hp_per_level
+from app.engine.sheet import CLASSES, armor_class, extra_attacks, hp_at_level_one, hp_per_level
 
 ARCHETYPES = {
     "tanque": {"classe": "sentinela", "forca": 16, "agilidade": 10, "vigor": 16, "ca_extra": 2},
@@ -15,32 +16,52 @@ ARCHETYPES = {
 }
 
 
-def _hp(class_id: str, vigor: int, level: int) -> int:
-    total = hp_at_level_one(class_id, vigor)
+def _hp(class_id: str, vigor: int, level: int, race_id: str = "humano") -> int:
+    total = hp_at_level_one(class_id, vigor, race_id)
     for _ in range(2, level + 1):
-        total += hp_per_level(class_id, vigor)
+        total += hp_per_level(class_id, vigor, race_id)
     return total
 
 
-def make_profile(class_id: str, attrs: dict, level: int, *, ca_extra: int = 0, nome: str = "") -> dict:
+def make_profile(
+    class_id: str,
+    attrs: dict,
+    level: int,
+    *,
+    ca_extra: int = 0,
+    nome: str = "",
+    race_id: str = "humano",
+    traco: str = "",
+    estagio: int = 0,
+) -> dict:
     level = max(1, min(20, int(level)))
     spec = CLASSES.get(class_id, CLASSES["espadachim"])
-    ability = attrs.get(spec["atributo"], 10)
+    sides, _dmg_type, _ranged, weapon_attr = weapon_profile(
+        class_id, {"nivel": level, "racaId": race_id, "estagio": estagio}, attrs
+    )
+    if race_id == "feral":
+        sides = max(sides, 8 if (estagio >= 1 or level >= 5) else 6)
+    ability = attrs.get(spec["atributo"], attrs.get(weapon_attr, 10))
     bonus, _cut = clamp(modifier(ability) + proficiency(level), attack_bonus_cap(level))
-    die = 8 if spec["dv"] >= 8 else 6
-    ac = min(10 + modifier(attrs.get("agilidade", 10)) + 3 + ca_extra, 10 + modifier(attrs.get("agilidade", 10)) + 6)
+    sheet = {"classeId": class_id, "racaId": race_id, "nivel": level, "traco": traco, "estagio": estagio}
+    ac = min(armor_class_cap(level), armor_class(attrs, sheet) + ca_extra)
+    hp = _hp(class_id, attrs.get("vigor", 10), level, race_id)
     return {
         "nome": nome or class_id,
         "classe": class_id,
+        "raca": race_id,
+        "traco": traco,
+        "estagio": estagio,
         "nivel": level,
-        "vida": _hp(class_id, attrs.get("vigor", 10), level),
-        "vidaMax": _hp(class_id, attrs.get("vigor", 10), level),
+        "vida": hp,
+        "vidaMax": hp,
         "ca": ac,
         "ataque": bonus,
-        "dado": die,
+        "dado": sides,
         "mod": modifier(ability),
         "ataques": extra_attacks(class_id, level),
         "defesa": False,
+        "cai1Usado": False,
     }
 
 
@@ -48,7 +69,15 @@ def profile_from_character(character, level: int | None = None) -> dict:
     sheet = character.sheet or {}
     class_id = sheet.get("classeId") or "espadachim"
     chosen = int(level or sheet.get("nivel") or 1)
-    return make_profile(class_id, character.attributes, chosen, nome=character.name)
+    return make_profile(
+        class_id,
+        character.attributes,
+        chosen,
+        nome=character.name,
+        race_id=sheet.get("racaId") or "humano",
+        traco=sheet.get("traco") or "",
+        estagio=int(sheet.get("estagio") or 0),
+    )
 
 
 def archetype_profile(kind: str, level: int) -> dict:
@@ -63,17 +92,25 @@ def archetype_profile(kind: str, level: int) -> dict:
 def _strike(rng, attacker, defender, half_damage: bool) -> tuple[int, str]:
     ac = defender["ca"] + (2 if defender.get("defesa") else 0)
     roll = rng.randint(1, 20)
-    if roll == 1 or (roll != 20 and roll + attacker["ataque"] < ac):
+    if roll == 1 and attacker.get("raca") == "pequenino":
+        roll = rng.randint(1, 20)
+    crit_min = 19 if (attacker.get("classe") == "espadachim" and int(attacker.get("nivel") or 1) >= 3) else 20
+    crit = roll >= crit_min
+    if roll == 1 or (not crit and roll + attacker["ataque"] < ac):
         return 0, f"⚔️ {attacker['nome']}: {roll} + {attacker['ataque']} vs CA {ac} — erro"
     sides = attacker["dado"]
     dice = [rng.randint(1, sides)]
-    if roll == 20:
+    if crit:
         dice.append(rng.randint(1, sides))
     damage = max(1, sum(dice) + attacker["mod"])
     if half_damage:
         damage = max(1, damage // 2)
     defender["vida"] -= damage
-    kind = "crítico" if roll == 20 else "acerto"
+    if defender["vida"] <= 0 and not defender.get("cai1Usado"):
+        if defender.get("raca") == "oni" or defender.get("traco") == "divida_com_fera":
+            defender["cai1Usado"] = True
+            defender["vida"] = 1
+    kind = "crítico" if crit else "acerto"
     return damage, f"⚔️ {attacker['nome']}: {roll} + {attacker['ataque']} vs CA {ac} — {kind} · {damage}"
 
 

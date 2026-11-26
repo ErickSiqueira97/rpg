@@ -27,6 +27,7 @@ from app.engine.duel import archetype_profile, fight, profile_from_character
 from app.engine.sheet import (
     apply_asi,
     apply_origin_bonus,
+    apply_sheet_traits,
     blank_sheet,
     class_id_for,
     grant_xp,
@@ -191,6 +192,36 @@ def create_app(
             return _erro(400, "rito", "O rito abre depois de concluir uma missão já nesse nível.")
         sheet["estagio"] = stage + 1
         sheet["ritoPronto"] = False
+        character.sheet = sheet
+        store.update_character(character)
+        return _public_character(character)
+
+    @app.post("/api/personagens/{character_id}/respec")
+    async def respec(character_id: str, request: Request):
+        user = _user(request, store)
+        if isinstance(user, JSONResponse):
+            return user
+        character = store.get_character(user.id, character_id)
+        if character is None:
+            return _erro(404, "nao_encontrado", "Ficha não encontrada.")
+        old_sheet = dict(character.sheet or {})
+        if not old_sheet.get("respecGratis") and not settings.allow_dev_plan_toggle:
+            return _erro(400, "respec", "O respec grátis abre quando há atualização de equilíbrio.")
+        body = await _body(request)
+        origin = str(body.get("origem") or character.origin)
+        archetype = str(body.get("arquetipo") or body.get("classe") or character.archetype)
+        try:
+            attributes, sheet, archetype = _build_sheet(body, origin, archetype)
+        except ValueError as exc:
+            return _erro(400, "ficha", str(exc))
+        for key in ("nivel", "xp", "estagio", "ritoPronto", "treinoDia", "treinoXp", "pendente"):
+            if key in old_sheet:
+                sheet[key] = old_sheet[key]
+        sheet["respecGratis"] = False
+        sheet = apply_sheet_traits(sheet, attributes)
+        character.origin = origin[:80]
+        character.archetype = archetype[:40]
+        character.attributes = attributes
         character.sheet = sheet
         store.update_character(character)
         return _public_character(character)
@@ -460,6 +491,7 @@ def _build_sheet(body: dict, origin: str, archetype: str) -> tuple[dict, dict, s
         sheet["viaId"] = ""
     if origin_row:
         sheet["origemId"] = origin_row["id"]
+    sheet = apply_sheet_traits(sheet, attributes)
     return attributes, sheet, archetype
 
 

@@ -181,19 +181,39 @@ def _npc(item: dict) -> dict:
 
 
 def format_sheet(character: Character) -> str:
+    from app.engine.sheet import armor_class
+
     attrs = character.attributes
-    return "\n".join(
-        [
-            f"Nome: {character.name}",
-            f"Origem: {character.origin}",
-            f"Arquétipo: {character.archetype}",
-            f"Conceito: {character.concept or 'não declarado'}",
-            (
-                f"Força {attrs['forca']} · Agilidade {attrs['agilidade']} · Vigor {attrs['vigor']} · "
-                f"Percepção {attrs['percepcao']} · Intelecto {attrs['intelecto']} · Essência {attrs['essencia']}"
-            ),
-        ]
-    )
+    sheet = character.sheet or {}
+    lines = [
+        f"Nome: {character.name}",
+        f"Origem: {character.origin}",
+        f"Arquétipo: {character.archetype}",
+        f"Conceito: {character.concept or 'não declarado'}",
+        (
+            f"Força {attrs['forca']} · Agilidade {attrs['agilidade']} · Vigor {attrs['vigor']} · "
+            f"Percepção {attrs['percepcao']} · Intelecto {attrs['intelecto']} · Essência {attrs['essencia']}"
+        ),
+    ]
+    if sheet:
+        skills = ", ".join(sheet.get("pericias") or []) or "nenhuma"
+        saves = ", ".join(sheet.get("salvaguardas") or []) or "nenhuma"
+        ca = armor_class(attrs, sheet)
+        lines.extend(
+            [
+                (
+                    f"Nível {sheet.get('nivel') or 1} · Raça: {sheet.get('racaId') or 'humano'} "
+                    f"(estágio {sheet.get('estagio') or 0}) · Classe: {sheet.get('classeId') or character.archetype}"
+                    + (f" ({sheet.get('subclasse')})" if sheet.get("subclasse") else "")
+                ),
+                (
+                    f"Via: {sheet.get('viaId') or 'nenhuma'} · Traço: {sheet.get('traco') or 'nenhum'} · "
+                    f"CA {ca} · Inspiração: {'sim' if sheet.get('inspiracao') else 'não'}"
+                ),
+                f"Perícias: {skills} · Salvaguardas: {saves}",
+            ]
+        )
+    return "\n".join(lines)
 
 
 def format_world(world: dict) -> str:
@@ -207,6 +227,13 @@ def format_world(world: dict) -> str:
         for quest in (world.get("missoes") or [])[:4]
     ]
     signals = [f"{key}={value}" for key, value in list((world.get("sinais") or {}).items())[:8]]
+    conditions = ", ".join(world.get("condicoes") or []) or "nenhuma"
+    forms = ", ".join(f"{item.get('nome')} ({item.get('rodadas', 0)}r)" for item in (world.get("formas") or [])) or "nenhuma"
+    enemies = [
+        f"- {enemy.get('nome') or 'Opositor'}: PV {enemy.get('vida', 0)}/{enemy.get('vidaMax', 0)}, CA {enemy.get('ca', 13)}, zona {enemy.get('zona', 'corpo')}"
+        for enemy in (world.get("inimigos") or [])[:4]
+        if int(enemy.get("vida") or 0) > 0
+    ]
     lines = [
         f"Época: {world.get('era')}",
         f"Saga: {world.get('saga')}",
@@ -214,7 +241,12 @@ def format_world(world: dict) -> str:
         f"Quando: {world.get('quando')}",
         f"Objetivo ({world.get('objetivoStatus') or 'ativa'}): {world.get('objetivo') or 'indefinido'}",
         f"Fim do roteiro: {world.get('objetivoOriginal') or 'o mesmo'}",
-        f"Vida: {world.get('vida')}/{world.get('vidaMax')} · Energia: {world.get('energia')}/{world.get('energiaMax')}",
+        (
+            f"Vida: {world.get('vida')}/{world.get('vidaMax')} (temp {world.get('vidaTemp') or 0}) · "
+            f"PE: {world.get('pe', world.get('energia'))}/{world.get('peMax', world.get('energiaMax'))} · "
+            f"Exaustão: {world.get('exaustao') or 0} · Zona: {world.get('zona') or 'corpo'}"
+        ),
+        f"Condições: {conditions} · Formas: {forms} · Procurado: {world.get('procurado') or 0}★ · Runas: {world.get('runas') or 0}",
         "Itens: " + (", ".join(world.get("inventario") or []) or "nenhum"),
         "Sinais: " + (", ".join(signals) or "nenhum"),
         "NPCs:",
@@ -222,6 +254,8 @@ def format_world(world: dict) -> str:
         "Missões:",
         *(quests or ["- nenhuma"]),
     ]
+    if enemies:
+        lines.extend(["Inimigos ativos:", *enemies])
     return "\n".join(lines)
 
 

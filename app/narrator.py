@@ -32,8 +32,8 @@ from app.story import (
 )
 
 ARBITER_PROMPT = """Você é o árbitro de um RPG de texto. Não narre. Responda só um JSON com a intenção da ação.
-Campos: intencao, teste {tipo, atributo, pericia, dificuldade, vantagem, motivo_vantagem, alvo}, riscos {falha, condicao_na_falha}, ganchos {sucesso, falha}.
-tipo é pericia, atributo, salvaguarda, ataque ou nenhum.
+Campos: intencao, teste {tipo, atributo, pericia, dificuldade, vantagem, motivo_vantagem, alvo, circulo, cobertura, zona}, riscos {falha, condicao_na_falha}, ganchos {sucesso, falha}.
+tipo é pericia, atributo, salvaguarda, ataque, tecnica ou nenhum.
 dificuldade é só um rótulo: muito_facil, facil, medio, dificil, muito_dificil, quase_impossivel. Não envie número.
 falha é nenhum, dano_leve, dano_medio ou dano_grave.
 Não declare sucesso, dano numérico, PV, item, XP nem morte.
@@ -43,6 +43,12 @@ PROTECTED_WORLD = (
     "vida", "vidaMax", "vidaTemp", "pe", "peMax", "energia", "energiaMax", "inventario",
     "condicoes", "condicaoRodadas", "exaustao", "morte", "morto", "derrota", "causaMorte",
     "inimigos", "dadosVida", "ultimaRolagem", "ultimaLinhas", "ultimaAcao", "julgamentoDisponivel",
+    "formas", "procurado", "pista", "atitudeMercadores", "ultimoCrime", "influenciarBloqueado",
+    "lacos", "contrato", "runas", "casa", "seguro", "maiorUsada", "descansoCurto",
+    "recuperacaoArcana", "recuperacaoArcanaUsos", "ultimoDescansoLongo", "elixir",
+    "dominioFalhou", "falhasDominio", "zona", "forjadoAcumulo", "membroTravado",
+    "oniResistenciaUsada", "dividaFeraUsada", "impetoUsado", "tecnicaUsadaNoTurno",
+    "ultimaResolucao", "julgamentoUsado", "custoJulgamento",
 )
 
 
@@ -245,6 +251,10 @@ class Narrator:
                     if stage < 3 and int(sheet.get("nivel") or 1) >= (5, 11, 17)[stage]:
                         sheet["ritoPronto"] = True
                     world["runas"] = int(world.get("runas") or 0) + (80 if memory.get("tipo") == "saga" else 50)
+                    if (memory.get("tipo") or "missao") != "saga":
+                        world["exaustao"] = 0
+                        world["formas"] = []
+                        world["vidaTemp"] = 0
                     character.sheet = sheet
                 character.sheet = sheet
                 self.store.update_character(character)

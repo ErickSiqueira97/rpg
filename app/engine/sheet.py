@@ -66,14 +66,16 @@ def hit_die(class_id: str) -> int:
     return CLASSES.get(class_id, CLASSES["sombra"])["dv"]
 
 
-def hp_at_level_one(class_id: str, vigor: int) -> int:
-    return max(1, hit_die(class_id) + modifier(vigor))
+def hp_at_level_one(class_id: str, vigor: int, race_id: str = "humano") -> int:
+    extra = 1 if race_id == "rochoso" else 0
+    return max(1, hit_die(class_id) + modifier(vigor) + extra)
 
 
-def hp_per_level(class_id: str, vigor: int) -> int:
+def hp_per_level(class_id: str, vigor: int, race_id: str = "humano") -> int:
     # Média fixa: metade arredondada para cima + modificador de Vigor. Mínimo 1.
     average = hit_die(class_id) // 2 + 1
-    return max(1, average + modifier(vigor))
+    extra = 1 if race_id == "rochoso" else 0
+    return max(1, average + modifier(vigor) + extra)
 
 
 def extra_attacks(class_id: str, level: int) -> int:
@@ -109,20 +111,29 @@ def circle_max(reserva: str, level: int) -> int:
     return 0
 
 
-def blank_sheet(class_id: str, attributes: dict[str, int], *, level: int = 1, xp: int = 0) -> dict:
+def blank_sheet(
+    class_id: str,
+    attributes: dict[str, int],
+    *,
+    level: int = 1,
+    xp: int = 0,
+    race_id: str = "humano",
+    traco: str = "",
+) -> dict:
     spec = CLASSES[class_id]
     pool, reserva = pe_max(class_id, level, attributes)
-    hp = hp_at_level_one(class_id, attributes["vigor"])
+    hp = hp_at_level_one(class_id, attributes["vigor"], race_id)
     for _ in range(2, level + 1):
-        hp += hp_per_level(class_id, attributes["vigor"])
+        hp += hp_per_level(class_id, attributes["vigor"], race_id)
+    expertise = list(spec["pericias"][:2]) if class_id == "sombra" or (class_id == "idolo" and level >= 2) else []
     return {
         "escala": "5e",
         "classeId": class_id,
-        "racaId": "humano",
+        "racaId": race_id,
         "origemId": "",
         "viaId": "",
         "subclasse": "",
-        "traco": "",
+        "traco": traco,
         "nivel": level,
         "xp": xp,
         "pendente": False,
@@ -131,13 +142,36 @@ def blank_sheet(class_id: str, attributes: dict[str, int], *, level: int = 1, xp
         "dado": hit_die(class_id),
         "salvaguardas": list(spec["salv"]),
         "pericias": list(spec["pericias"]),
-        "especializacao": [],
+        "especializacao": expertise,
         "peMax": pool,
         "reserva": reserva,
         "estagio": 0,
-        "inspiracao": False,
+        "inspiracao": race_id == "humano",
         "migrada": False,
     }
+
+
+def apply_sheet_traits(sheet: dict, attributes: dict[str, int]) -> dict:
+    """Recalcula PV, PE, especialização e restrições após aplicar raça/classe/traço."""
+    updated = dict(sheet)
+    class_id = updated.get("classeId") or "sombra"
+    race_id = updated.get("racaId") or "humano"
+    level = max(1, min(20, int(updated.get("nivel") or 1)))
+    hp = hp_at_level_one(class_id, attributes["vigor"], race_id)
+    for _ in range(2, level + 1):
+        hp += hp_per_level(class_id, attributes["vigor"], race_id)
+    updated["vidaMax"] = hp
+    updated["dado"] = hit_die(class_id)
+    updated["salvaguardas"] = list(CLASSES.get(class_id, CLASSES["sombra"])["salv"])
+    if class_id == "sombra" and not updated.get("especializacao"):
+        updated["especializacao"] = list(CLASSES["sombra"]["pericias"])
+    elif class_id == "idolo" and level >= 2 and not updated.get("especializacao"):
+        updated["especializacao"] = list(CLASSES["idolo"]["pericias"])
+    if race_id == "humano" and "inspiracaoGanha" not in updated:
+        updated["inspiracao"] = True
+    if updated.get("traco") == "nulo":
+        updated["viaId"] = ""
+    return recompute_pe(updated, attributes)
 
 
 def migrate_legacy(attributes: dict[str, int], archetype: str) -> tuple[dict[str, int], dict]:
@@ -184,10 +218,11 @@ def grant_xp(sheet: dict, amount: int, vigor: int) -> dict:
     updated = dict(sheet)
     updated["xp"] = int(updated.get("xp") or 0) + max(0, int(amount))
     level = int(updated.get("nivel") or 1)
+    race_id = updated.get("racaId") or "humano"
     target = level_for_xp(updated["xp"])
     while level < target and level < 20:
         level += 1
-        updated["vidaMax"] = int(updated.get("vidaMax") or 1) + hp_per_level(updated["classeId"], vigor)
+        updated["vidaMax"] = int(updated.get("vidaMax") or 1) + hp_per_level(updated["classeId"], vigor, race_id)
         updated["dadosVidaMax"] = level
         if level in {4, 8, 12, 16, 19}:
             updated["pendente"] = True
@@ -238,3 +273,46 @@ def training_xp_cap(level: int) -> int:
 
 def proficiency_bonus(sheet: dict) -> int:
     return proficiency(int(sheet.get("nivel") or 1))
+
+
+def armor_class(attributes: dict[str, int], sheet: dict | None = None, world: dict | None = None) -> int:
+    """CA real da ficha com teto por patamar e bônus temporário limitado a +2."""
+    from app.engine.math import armor_class_cap
+
+    sheet = sheet or {}
+    world = world or {}
+    class_id = sheet.get("classeId") or "sombra"
+    level = max(1, min(20, int(sheet.get("nivel") or 1)))
+    agi = modifier(attributes.get("agilidade", 10))
+    vig = modifier(attributes.get("vigor", 10))
+    per = modifier(attributes.get("percepcao", 10))
+
+    if class_id == "sentinela":
+        base = 18
+    elif class_id == "espadachim":
+        base = 16
+    elif class_id == "punho_de_aura":
+        base = 10 + agi + max(0, per)
+    elif class_id == "furioso":
+        base = max(13 + min(2, agi), 10 + agi + max(0, vig))
+    elif class_id in {"cacador", "artifice", "devoto", "invocador"}:
+        base = 13 + min(2, agi)
+    elif class_id in {"sombra", "cozinheiro_de_batalha"}:
+        base = 11 + agi
+    else:
+        base = 10 + agi
+
+    if sheet.get("racaId") == "automato":
+        base += 1
+
+    permanent_cap = armor_class_cap(level)
+    base = min(base, permanent_cap)
+
+    temp = 0
+    for form in world.get("formas") or []:
+        grade = form.get("grau")
+        temp = max(temp, 2 if grade in {"maior", "suprema"} else 1)
+    if world.get("defesa"):
+        temp += 2
+    temp = min(2, temp)
+    return min(permanent_cap + 2, base + temp)
